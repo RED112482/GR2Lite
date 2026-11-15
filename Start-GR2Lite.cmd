@@ -1,0 +1,38 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+where py >nul 2>nul
+if errorlevel 1 (
+  echo Python launcher not found. Install Python 3.12 from python.org.
+  pause
+  exit /b 1
+)
+where npm.cmd >nul 2>nul
+if errorlevel 1 (
+  echo npm not found. Install Node.js LTS and reopen this terminal.
+  pause
+  exit /b 1
+)
+if not exist "backend\.venv\Scripts\python.exe" (
+  echo Creating Python 3.12 environment...
+  py -3.12 -m venv "backend\.venv"
+  if errorlevel 1 (pause & exit /b 1)
+)
+echo Installing backend dependencies...
+pushd "backend"
+".venv\Scripts\python.exe" -m pip install -e .
+if errorlevel 1 (popd & pause & exit /b 1)
+popd
+if not exist "frontend\node_modules" (
+  echo Installing browser dependencies...
+  pushd "frontend"
+  call npm.cmd install
+  if errorlevel 1 (popd & pause & exit /b 1)
+  popd
+)
+echo Starting experimental near-live KMOB Level-II viewer...
+echo NOTE: This uses completed AWS volumes, not real-time sweep chunks.
+start "GR2Lite Backend" cmd /k "cd /d ""%~dp0backend"" && set GR2LITE_MODE=live&& .venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000"
+start "GR2Lite Frontend" cmd /k "cd /d ""%~dp0frontend"" && npm.cmd run dev"
+start "" "http://127.0.0.1:5173/GR2Lite/"
+echo Two windows are running. Close them to stop GR2Lite.
