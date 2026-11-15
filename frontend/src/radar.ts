@@ -24,6 +24,7 @@ export interface VolumeDescriptor {
   contract_version: '0.1.0';
   volume_id: string;
   radar_id: string;
+  vcp?: string|null;
   radar_lat: number;
   radar_lon: number;
   radar_alt_m: number | null;
