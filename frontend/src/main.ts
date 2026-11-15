@@ -45,6 +45,7 @@ type RadaFrameAlias = RadarFrame;
 let request=0;
 let feedMode:'archive'|'live'|'chunks'='archive';
 let feedState='empty';
+let feedSource='archive';
 let availableVolumes:VolumeDescriptor[]=[];
 let panelManager:PanelManager;
 let syncing=false;
@@ -197,12 +198,14 @@ async function syncRadar(initial=false){
     if(!response.ok)throw new Error('Backend radar status: HTTP '+response.status);
     const info=await response.json() as {
       mode:'archive'|'live'|'chunks';state:string;latest_volume_id:string|null;feed_source?:string;
+      chunk_count?:number;complete_sweeps?:number;
       age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
     };
-    feedMode=info.mode;feedState=info.state;
+    feedMode=info.mode;feedState=info.state;feedSource=info.feed_source??info.mode;
     const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
     el<HTMLParagraphElement>('feedInfo').textContent=info.mode!=='archive'
       ? (info.mode==='chunks'?'Incremental chunks':'Completed volumes')+' • '+(info.feed_source??'feed')+' • latest ray '+age+' old'+
+        (info.mode==='chunks'?' • '+(info.chunk_count??0)+' chunks, '+(info.complete_sweeps??0)+' cuts':'')+
         (info.last_error?' • last update error: '+info.last_error:'')
       : 'Archived volume • automatic updates disabled';
     const list=await fetchVolumes(root);
@@ -221,7 +224,7 @@ async function syncRadar(initial=false){
       await chooseVolume(target,initial);
     }else{
       currentHistory();
-      setStatus(feedMode==='chunks'?'CHUNKS • '+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
+      setStatus(feedMode==='chunks'?(feedSource==='archive-fallback'?'FALLBACK • ':'CHUNKS • ')+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
         feedState==='stale'||feedState==='error'?'error':'ok');
     }
     if(!boundariesLoaded&&map.isStyleLoaded()){
