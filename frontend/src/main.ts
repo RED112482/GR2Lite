@@ -41,6 +41,11 @@ let sweep:SweepDescriptor|undefined;
 let current:RadaFrameAlias|undefined;
 type RadaFrameAlias = RadarFrame;
 let request=0;
+let feedMode:'archive'|'live'='archive';
+let feedState='empty';
+let availableVolumes:VolumeDescriptor[]=[];
+let syncing=false;
+let boundariesLoaded=false;
 const frameCache=new Map<string,RadarFrame>();
 function cacheKey(v:VolumeDescriptor,s:SweepDescriptor,m:Moment){return v.volume_id+'|'+s.id+'|'+m;}
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
@@ -105,32 +110,119 @@ async function loadFrame(){
     el<HTMLSpanElement>('scanTime').textContent=timestamp;
     el<HTMLSpanElement>('momentLabel').textContent=moment+' • '+frame.descriptor.units;
     el<HTMLSpanElement>('angleLabel').textContent=s.fixed_angle_deg.toFixed(2)+'° / CUT '+s.index;
-    el<HTMLSpanElement>('volumeLabel').textContent='ARCHIVE • '+v.volume_id;
+    el<HTMLSpanElement>('volumeLabel').textContent=(feedMode==='live'?'NEAR-LIVE':'ARCHIVE')+' • '+v.volume_id;
     el<HTMLDivElement>('gate').textContent='Click a valid radar gate to inspect the native '+m+' measurement.';
-    setStatus('ARCHIVE READY','ok');clearError();
+    setStatus(feedMode==='live' ? 'LIVE • '+feedState.toUpperCase() : 'ARCHIVE READY',
+      feedState==='stale'||feedState==='error'?'error': 'ok');
+    clearError();
   }catch(e){if(id===request)showError(e);}
 }
-async function connect(){
-  ++request;clearError();setStatus('CONNECTING');
-  const root=apiInput.value.trim().replace(/\/$/,'');
-  localStorage.setItem('gr2lite-api',root);
-  try{
-    const volumes=await fetchVolumes(root);
-    if(!volumes.length)throw new Error('Backend is reachable, but no archive is preloaded. Set GR2LITE_ARCHIVE_PATH before starting uvicorn.');
-    volume=volumes[0];
-    if(volume.radar_id!=='KMOB')console.warn('A different radar is loaded:',volume.radar_id);
-    el<HTMLElement>('radarName').textContent=volume.radar_id;
-    frameCache.clear();
-    moment=volume.sweeps.some(s=>s.moments.REF)?'REF':currentMomentOptions()[0];
-    sweep=volume.sweeps.find(s=>s.moments[moment]);
-    if(!sweep)throw new Error('No supported radar moments found');
-    renderTiltOptions();
-    map.jumpTo({center:[volume.radar_lon,volume.radar_lat],zoom:7,bearing:0,pitch:0});
-    await loadFrame();
-    if(map.isStyleLoaded())void installBoundaries(map,root);
-  }catch(e){showError(e);}
+function currentHistory(){
+  const id=volume?.volume_id;
+  const select=el<HTMLSelectElement>('history');
+  select.replaceChildren();
+  for(const v of availableVolumes){
+    const opt=document.createElement('option');
+    opt.value=v.volume_id;
+    const stamp=v.sweeps.length && v.sweeps[0].time_utc.length
+      ? new Date(v.sweeps[0].time_utc[0]).toISOString().slice(0,19).replace('T',' ')+'Z'
+      : v.volume_id;
+    opt.textContent=stamp;
+    select.appendChild(opt);
+  }
+  if(id&&availableVolumes.some(v=>v.volume_id===id))select.value=id;
 }
-el<HTMLButtonElement>('connect').onclick=connect;
+
+async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
+  const oldMoment=moment,oldAngle=sweep?.fixed_angle_deg;
+  const previousRadar=volume?.radar_id;
+  volume=selected;
+  el<HTMLElement>('radarName').textContent=selected.radar_id;
+  const supported=momentOrder.filter(m=>selected.sweeps.some(s=>s.moments[m]));
+  moment=supported.includes(oldMoment)?oldMoment:(supported.includes('REF')?'REF':supported[0]);
+  if(!moment)throw new Error('Volume contains no supported radar moments');
+  const candidates=selected.sweeps.filter(s=>s.moments[moment]);
+  sweep=oldAngle===undefined||initial?candidates[0]
+    :candidates.reduce((best,s)=>Math.abs(s.fixed_angle_deg-oldAngle)<Math.abs(best.fixed_angle_deg-oldAngle)?s:best,candidates[0]);
+  if(!sweep)throw new Error('No radar elevation for '+moment);
+  if(initial||previousRadar!==selected.radar_id){
+    map.jumpTo({center:[selected.radar_lon,selected.radar_lat],zoom:7,bearing:0,pitch:0});
+  }
+  currentHistory();renderTiltOptions();
+  await loadFrame();
+}
+
+async function syncRadar(initial=false){
+  if(syncing)return;
+  syncing=true;
+  const root=apiInput.value.trim().replace(/\\/$/,'');
+  try{
+    const response=await fetch(root+'/radar/status',{cache:'no-store'});
+    if(!response.ok)throw new Error('Backend radar status: HTTP '+response.status);
+    const info=await response.json() as {
+      mode:'archive'|'live';state:string;latest_volume_id:string|null;
+      age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
+    };
+    feedMode=info.mode;feedState=info.state;
+    const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
+    el<HTMLParagraphElement>('feedInfo').textContent=info.mode==='live'
+      ? 'Near-live completed volumes • newest ray '+age+' old'+
+        (info.last_error?' • last update error: '+info.last_error:'')
+      : 'Archived volume • automatic updates disabled';
+    const list=await fetchVolumes(root);
+    availableVolumes=list;
+    const follow=el<HTMLInputElement>('followLive').checked;
+    const target=follow?list[0]:list.find(v=>v.volume_id===volume?.volume_id)??list[0];
+    if(!target){
+      currentHistory();
+      if(info.mode==='live'){
+        setStatus(info.state==='error'?'FEED ERROR':'WAITING FOR KMOB',info.state==='error'?'error':'');
+        clearError();
+      }else if(initial)throw new Error('No archive loaded. Set GR2LITE_ARCHIVE_PATH and restart backend.');
+      return;
+    }
+    if(initial||target.volume_id!==volume?.volume_id){
+      await chooseVolume(target,initial);
+    }else{
+      currentHistory();
+      setStatus(feedMode==='live'?'LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
+        feedState==='stale'||feedState==='error'?'error':'ok');
+    }
+    if(!boundariesLoaded&&map.isStyleLoaded()){
+      boundariesLoaded=true;
+      void installBoundaries(map,root);
+    }
+    clearError();
+  }catch(e){
+    if(initial)showError(e);
+    else{
+      const msg=e instanceof Error?e.message:String(e);
+      el<HTMLParagraphElement>('feedInfo').textContent='Connection failed: '+msg;
+      setStatus('DISCONNECTED','error');
+    }
+  }finally{
+    syncing=false;
+  }
+}
+async function connect(){
+  ++request;
+  frameCache.clear();
+  boundariesLoaded=false;
+  clearError();setStatus('CONNECTING');
+  localStorage.setItem('gr2lite-api',apiInput.value.trim());
+  await syncRadar(true);
+}
+el<HTMLButtonElement>('connect').onclick=()=>{void connect();};
+el<HTMLSelectElement>('history').onchange=async e=>{
+  el<HTMLInputElement>('followLive').checked=false;
+  const target=availableVolumes.find(v=>v.volume_id===(e.target as HTMLSelectElement).value);
+  if(target)await chooseVolume(target,false);
+};
+el<HTMLInputElement>('followLive').onchange=()=>{
+  if(el<HTMLInputElement>('followLive').checked)void syncRadar();
+};
+// Only one status poll can run at a time; keep history and view stable.
+window.setInterval(()=>{void syncRadar();},12000);
 el<HTMLSelectElement>('tilt').onchange=async e=>{
   sweep=volume?.sweeps.find(s=>s.id===(e.target as HTMLSelectElement).value);
   await loadFrame();
