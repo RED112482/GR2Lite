@@ -4,6 +4,7 @@ import {fetchVolumes,fetchFrame,momentOrder,formatValue} from './radar';
 import type {Moment,RadarFrame,VolumeDescriptor,SweepDescriptor} from './radar';
 import {PolarRadarLayer} from './radarLayer';
 import {getPalette,cssGradient} from './palettes';
+import {installBoundaries} from './overlays';
 
 const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const apiInput=el<HTMLInputElement>('apiRoot');
@@ -24,12 +25,8 @@ const map=new maplibregl.Map({
   container:'map',
   style:{
     version:8,
-    sources:{carto:{type:'raster',tiles:[
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-    ],tileSize:256,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'}},
-    layers:[{id:'base',type:'raster',source:'carto'}]
+    sources:{},
+    layers:[{id:'base',type:'background',paint:{'background-color':'#252b32'}}]
   },
   center:[-88.239,30.679],zoom:7,pitch:0,maxPitch:0,dragRotate:false
 });
@@ -92,6 +89,13 @@ async function loadFrame(){
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
+    let count=0, low=Infinity, high=-Infinity;
+    for(const value of frame.values){
+      if(Number.isFinite(value)){count++;low=Math.min(low,value);high=Math.max(high,value);}
+    }
+    el<HTMLSpanElement>('validLabel').textContent=count.toLocaleString()+' valid gates';
+    if(!count)throw new Error('This radar cut contains no finite '+m+' gates. Try another tilt or radar moment.');
+    if(!radar.isReady())console.warn('Radar frame received but GPU layer is not ready; inspect browser console.');
     const selectedTimes=s.time_utc.filter(Boolean);
     const timestamp=selectedTimes.length?new Date(selectedTimes[0]).toISOString().slice(0,19).replace('T',' ')+'Z':'Time unavailable';
     el<HTMLSpanElement>('scanTime').textContent=timestamp;
@@ -119,6 +123,7 @@ async function connect(){
     renderTiltOptions();
     map.jumpTo({center:[volume.radar_lon,volume.radar_lat],zoom:7,bearing:0,pitch:0});
     await loadFrame();
+    if(map.isStyleLoaded())void installBoundaries(map,root);
   }catch(e){showError(e);}
 }
 el<HTMLButtonElement>('connect').onclick=connect;
