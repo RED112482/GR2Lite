@@ -1,58 +1,75 @@
-# GR2Lite — Experimental Level-II Radar Viewer
+# GR2Lite — Experimental Level-II radar viewer
 
-**Current: near-live KMOB completed-volume refresh + archived playback.**
-The WebGL2 radar viewer shows native polar gates with state, county and NWS CWA
-reference overlays. This is an experimental research tool, **not approved for
-operational warning decisions**.
+A browser-based Doppler radar interrogation prototype with native polar-gate rendering,
+interactive map navigation, official NOAA CWA/state/county boundaries and
+incremental KMOB Level-II chunk ingestion.
 
-## Windows quick start
+**Not approved for operational NWS warning decisions.** The decoder,
+moment geometry, streaming latency and color mapping require additional
+independent real-data validation.
 
-Install **Python 3.12** and **Node.js LTS** once. Download the repository and
-double-click **[Start-GR2Lite.cmd](Start-GR2Lite.cmd)**. It sets up isolated
-dependencies, launches the local radar backend and frontend, and opens the
-browser viewer. Internet access is needed to query the public AWS Level-II feed.
+## Quick start (Windows)
 
-The backend can also be run in historical archive mode using
-`GR2LITE_ARCHIVE_PATH`. See
-**[Live mode and manual launch instructions](docs/live-mode.md)**.
+Install **Python 3.12** and **Node.js LTS** once. Download the current
+repository ZIP, extract it, and double-click **Start-GR2Lite.cmd**.
 
-## What works
+The launcher prepares the isolated Python and npm dependencies, starts the
+backend using `GR2LITE_MODE=chunks`, starts the Vite browser application,
+and opens <http://127.0.0.1:5173/GR2Lite/>.
 
-- Native Level-II REF/VEL/SW/CC/ZDR/PHI rendering via WebGL2
-- Native-value gate sampling and elevation/cut selection
-- MapLibre dark basemap without an API key; official NOAA boundary overlays
-- Automatically checking the latest *complete* KMOB volume on AWS
-- Bounded volume history, Follow Latest toggle, UTC timestamps and stale state
-- Preservation of map zoom/pan, radar moment and closest elevation during updates
-- Backend API status `/radar/status` and `/volumes`; live errors are visible
-- GitHub Actions test/build workflows
+The frontend API address should be `/api`. The backend status page is
+<http://127.0.0.1:8000/radar/status>.
 
-## Next technical milestones
+## Multi-panel operation
 
-1. **Incremental chunk ingestion** (low-latency S/I/E fragments and completed
-   sweep publication) rather than waiting for completed archive volumes
-2. More memory-efficient gate caching and fast history playback
-3. Accurate long-range gate geodesy and independent radar validation
-4. Native SRM, dealiasing controls, QTor/tortosity overlays
-5. Authenticated cloud backend with persistent low-latency connection and
-   availability monitoring
+- **1 panel:** full interactive WebGL2 map.
+- **2 panels:** REF and VEL at the closest available cut angle.
+- **4 panels:** REF/VEL at the selected elevation and next elevation.
+- **16 panels:** all **unique** elevation angles from lowest to highest;
+  if more than 16, use the page arrows. These panels are optimized Canvas2D
+  previews of the native gates, with map outlines and a shared camera.
+- Up/down arrows in **1/2/4-panel** modes move only to a genuinely
+  higher/lower angle (no wrapping from highest to lowest).
+- Wheel and drag in multi-panel mode adjust the shared geographic viewport.
+  Click a tile to interrogate the nearest native gate; double-click to open
+  that tilt in the single WebGL view.
+- The VST/product readout includes UTC time, VCP when present, current tilt,
+  moment and maximum decoded sample details.
 
-The current AWS feed is the public `unidata-nexrad-level2` **completed-volume**
-bucket. The `unidata-nexrad-level2-chunks` bucket supports earlier sweep
-updates, but that mechanism is **not integrated yet**. Do not interpret the
-`NEAR-LIVE` label as a guarantee of true per-sweep real-time latency.
+## Incremental radar ingestion
 
-Source information: https://registry.opendata.aws/noaa-nexrad/ and
-https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/nexrad_read_chunks.html
+Default `GR2LITE_MODE=chunks` reads from the rolling
+`unidata-nexrad-level2-chunks` S3 bucket, ordering S/I/E chunks, checking
+for gaps, and calling xradar with `incomplete_sweep="drop"`. When complete
+sweeps become available, the backend publishes a new immutable snapshot.
+Partial sweeps do not replace valid displayed radar. The legacy completed-
+volume ingest path remains a fallback.
 
-## Repository layout
+- Default poll interval: 12 seconds. No latency guarantee.
+- Source indicators: `CHUNKS` (incremental) versus `FALLBACK` (archive).
+- UTC acquisition timestamps, stale/delayed status, and latest completed
+  sweep count visible at `/radar/status`.
+- Retains the newest two snapshots by default; preserves pan/zoom and
+  closest elevation when following live data.
+- Pulling from S3 requires working Internet access.
+- **This is an experimental first implementation**; automated unit tests
+  cannot substitute for a live ingest run and comparison with GR2Analyst.
 
-- `backend/gr2lite/` — decoding, AWS polling, archive/history API
-- `frontend/src/` — map, WebGL2 radar layer, controls and gate sampling
-- `docs/` — radar data contract, validation and live-mode instructions
-- `.github/workflows/` — automated unit tests and frontend build
+## Architecture
 
-Python API is local by default; the frontend is served by Vite locally.
-The repository contains a Dockerfile to prepare for cloud deployment but
-**does not yet deploy a cloud service**. GitHub Pages alone cannot host the
-running Python radar backend.
+- `backend/gr2lite/chunks.py`: S3 chunk discovery, sequential download,
+  complete-sweep assembly and archive fallback
+- `backend/gr2lite/live.py`: bounded historical snapshots and feed status
+- `backend/gr2lite/decoder.py`: xradar adapter
+- `frontend/src/radarLayer.ts`: native-gate WebGL2 renderer
+- `frontend/src/panels.ts`: synchronized multi-panel previews
+- `frontend/src/palettes.ts`: reflectivity/velocity reference-inspired ramps
+- `docs/live-mode.md`: manual deployment and troubleshooting
+- `docs/radar-contract.md`: JSON and binary transport contract
+
+The React/GPU and chunk layer remain experimental research components, not
+a certified warning platform. Cloud hosting remains a future task: GitHub
+Pages hosts static resources but cannot run this Python backend.
+
+Data: <https://registry.opendata.aws/noaa-nexrad/>
+Chunk decoding: <https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/nexrad_read_chunks.html>
