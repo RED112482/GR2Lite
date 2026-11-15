@@ -49,7 +49,7 @@ async def boundaries(kind: str):
         "spatialRel": "esriSpatialRelIntersects",
         "inSR": 4326,
         "outSR": 4326,
-        "outFields": "cwa,wfo,countyname,name,state",
+        "outFields": "*",
         "returnGeometry": "true",
         "f": "geojson",
     }
