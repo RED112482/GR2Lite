@@ -239,9 +239,9 @@ export class PanelManager {
           const unit=getPalette(frame.moment,'operational').unit;
           const info=document.getElementById('gate');
           if(info)info.textContent=frame.moment+' • '+tile.label+' • '+tile.sweep.id+
-            '\\nGate: '+(Number.isFinite(value)?value.toFixed(2)+' '+unit:'NO DATA')+
-            '\\nAzimuth: '+az.toFixed(2)+'°\\nRange: '+(range/1000).toFixed(2)+' km'+
-            '\\nRadial / gate: '+ray+' / '+gate;
+            '\nGate: '+(Number.isFinite(value)?value.toFixed(2)+' '+unit:'NO DATA')+
+            '\nAzimuth: '+az.toFixed(2)+'°\nRange: '+(range/1000).toFixed(2)+' km'+
+            '\nRadial / gate: '+ray+' / '+gate;
         };
       }catch(e){
         caption.textContent+=' • UNAVAILABLE';
