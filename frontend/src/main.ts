@@ -85,7 +85,18 @@ function paintLegend(){
   el<HTMLDivElement>('legend-gradient').style.background=cssGradient(p).replace('to right','to top');
   el<HTMLSpanElement>('legend-min').textContent=p.min+' '+p.unit;
   el<HTMLSpanElement>('legend-max').textContent=p.max+' '+p.unit;
-  el<HTMLDivElement>('legend-title').textContent=moment+' color scale';
+  el<HTMLDivElement>('legend-title').textContent=moment+' • '+p.unit;
+  const ticks=el<HTMLDivElement>('legend-ticks');
+  ticks.replaceChildren();
+  const step=moment==='REF'?5:moment==='VEL'?20:Math.max(0.1,(p.max-p.min)/10);
+  const first=Math.ceil(p.min/step)*step;
+  for(let value=first;value<=p.max;value+=step){
+    const label=document.createElement('span');
+    label.className='legend-tick';
+    label.textContent=String(Math.round(value*10)/10);
+    label.style.bottom=(100*(value-p.min)/(p.max-p.min))+'%';
+    ticks.append(label);
+  }
 }
 async function loadFrame(){
   if(!volume||!sweep)return;
