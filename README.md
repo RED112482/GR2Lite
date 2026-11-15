@@ -90,3 +90,52 @@ NEXRAD public archive: https://registry.opendata.aws/noaa-nexrad/
 Reader: https://docs.openradarscience.org/projects/xradar/
 
 Independent experimental project, not an official NWS warning system.
+
+## First browser viewer — Milestone 2 prototype
+
+The initial TypeScript + MapLibre + WebGL2 radar viewer is under `frontend/`.
+It supports cached native gate textures, fast pan/zoom, REF/VEL and other
+available moments, all elevation cuts, click-to-sample, two palettes, opacity
+control and a dark street basemap. **This is an experimental MVP**, not yet
+a validated geographic display. Geographic placement uses a local planar
+Mercator approximation that becomes less accurate away from the radar; gate
+range displayed in the browser is approximate. No real-time ingestion or
+history playback is included yet.
+
+### PowerShell: start archive backend
+
+From the `backend` directory, after downloading a KMOB volume:
+
+```powershell
+$env:GR2LITE_ARCHIVE_PATH = (Resolve-Path ".\\data\\KMOB20240604_000506_V06").Path
+.\\.venv\\Scripts\\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000
+```
+
+Keep this terminal open. Backend metadata should be available at
+http://127.0.0.1:8000/volumes.
+
+### PowerShell: start frontend in another terminal
+
+Node.js 20+ is recommended. From the repository `frontend` folder:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:5173/GR2Lite/ (or the URL Vite prints).
+The frontend defaults to `/api`, which Vite proxies to the local backend.
+Select REF or VEL, switch cuts, and click a gate for its measurement.
+
+### Cloud deployment later
+
+The browser frontend can be hosted statically. The Python backend requires a
+persistent container/VM process and accessible archive storage; GitHub Pages
+**cannot** run it. Once a cloud backend is deployed, enter its HTTPS base URL
+in the frontend's **Backend URL** input. Set `GR2LITE_CORS_ORIGINS` to the
+trusted browser origin(s). Avoid Internet-exposing this prototype until
+authentication, resource limits and safe preloading are implemented.
+
+The raster basemap uses CARTO/OSM third-party tiles, subject to their
+attribution and usage terms. No weather warnings should be based on this
+prototype.

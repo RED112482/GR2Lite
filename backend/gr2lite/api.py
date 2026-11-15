@@ -3,10 +3,22 @@ from pathlib import Path
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
 from .decoder import DecodedVolume, decode_archive
 from .models import Moment
 
 app = FastAPI(title="GR2Lite Archive API", version="0.1.0")
+# Public cloud hosting needs explicit origin allowlisting; no wildcard credentials.
+origins = [v.strip() for v in os.environ.get(
+    "GR2LITE_CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,https://red112482.github.io"
+).split(",") if v.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 CACHE: dict[str, DecodedVolume] = {}
 
 

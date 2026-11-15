@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GR2Lite • KMOB Level-II</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+</head><body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">◉</span><b>GR2Lite</b><span class="minor">LEVEL-II RADAR</span></div>
+    <div class="radar-title"><b id="radarName">KMOB</b><span id="scanTime">No volume loaded</span></div>
+    <span id="status" class="status">CONNECTING</span>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="section"><div class="section-title">SOURCE</div>
+        <label for="apiRoot">Backend URL</label>
+        <input id="apiRoot" type="text" placeholder="Local API or cloud URL" spellcheck="false"/>
+        <button id="connect">Connect to archive</button>
+        <p class="help">Local Vite preview: <code>/api</code>. For a cloud API, enter its HTTPS origin. This version reads one preloaded archive volume.</p>
+      </div>
+      <div class="section"><div class="section-title">RADAR PRODUCT</div>
+        <div id="moments" class="moment-buttons"></div>
+        <div class="control-row"><label for="tilt">Elevation cut</label><select id="tilt"></select></div>
+        <div class="control-row"><label for="palette">Color table</label><select id="palette"><option value="operational">Operational</option><option value="contrast">High contrast</option></select></div>
+        <div class="control-row"><label for="opacity">Opacity</label><input id="opacity" type="range" min="20" max="100" value="85"/></div>
+      </div>
+      <div class="section"><div class="section-title">INTERROGATION</div>
+        <div id="gate" class="gate">Click a radar gate to inspect its measured value, azimuth and slant range.</div>
+      </div>
+      <div class="section"><div class="section-title">MAP</div>
+        <button id="recenter" class="secondary">Recenter on KMOB</button>
+        <p class="help">Mouse wheel: zoom · drag: pan · ↑/↓: next/previous cut · Delete: REF/VEL</p>
+      </div>
+      <div class="section"><div class="section-title">DATA NOTES</div>
+        <p class="help">Experimental renderer. Geolocation uses a local planar approximation and native gate values; not verified for warning operations. Archive-only (no live feed yet). Unavailable gates are transparent.</p>
+      </div>
+    </aside>
+    <main class="map-wrap"><div id="map"></div><div id="map-error" class="map-error hidden"></div>
+      <div class="map-hud"><span id="momentLabel">NO RADAR DATA</span><span id="angleLabel">—</span><span id="volumeLabel">ARCHIVE</span></div>
+      <div class="legend"><div id="legend-title">Radar moment</div><div id="legend-gradient"></div><div class="legend-edges"><span id="legend-min"></span><span id="legend-max"></span></div></div>
+    </main>
+  </div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body></html>
