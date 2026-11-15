@@ -10,6 +10,7 @@ from .models import VolumeDescriptor
 from fastapi.middleware.cors import CORSMiddleware
 from .decoder import DecodedVolume, decode_archive
 from .models import Moment
+from .live import RadarStore, LiveArchivePoller
 
 app = FastAPI(title="GR2Lite Archive API", version="0.1.0")
 # Public cloud hosting needs explicit origin allowlisting; no wildcard credentials.
@@ -24,6 +25,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 CACHE: dict[str, DecodedVolume] = {}
+LIVE_STORE = RadarStore(limit=int(os.environ.get("GR2LITE_HISTORY_VOLUMES", "2")))
+LIVE_POLLER: LiveArchivePoller | None = None
+
+def _all_volumes() -> list[DecodedVolume]:
+    return LIVE_STORE.list() if LIVE_STORE.mode == "live" else list(CACHE.values())
+
+def _get_volume(volume_id: str) -> DecodedVolume | None:
+    return LIVE_STORE.get(volume_id) if LIVE_STORE.mode == "live" else CACHE.get(volume_id)
+
+@app.get("/radar/status")
+def radar_status():
+    if LIVE_STORE.mode == "live":
+        return LIVE_STORE.status()
+    volumes = list(CACHE.values())
+    return {
+        "mode": "archive", "state": "ready" if volumes else "empty",
+        "latest_volume_id": volumes[0].descriptor.volume_id if volumes else None,
+        "latest_ray_time_utc": None, "age_seconds": None,
+        "volume_count": len(volumes), "last_check_utc": None,
+        "last_success_utc": None, "last_error": None,
+    }
 
 # NOAA public reference layer IDs: CWA=1, counties=2, states=3.
 # Bounded regional request avoids downloading nationwide feature polygons.
@@ -71,7 +93,7 @@ async def boundaries(kind: str):
 @app.get("/volumes/{volume_id}/diagnostics")
 def volume_diagnostics(volume_id: str):
     import numpy as np
-    v = CACHE.get(volume_id)
+    v = _get_volume(volume_id)
     if v is None:
         raise HTTPException(404, "Volume not loaded")
     summary = []
@@ -92,7 +114,7 @@ def volume_diagnostics(volume_id: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mode": "archive", "contract_version": "0.1.0"}
+    return {"status": "ok", "mode": LIVE_STORE.mode, "contract_version": "0.1.0"}
 
 
 @app.get("/volumes")
@@ -100,23 +122,25 @@ def volumes():
     # Pydantic JSON serializes optional non-finite values as null instead of
     # allowing Starlette JSONResponse to crash with "Out of range float values".
     payload = TypeAdapter(list[VolumeDescriptor]).dump_json(
-        [v.descriptor for v in CACHE.values()]
+        [v.descriptor for v in _all_volumes()]
     )
     return Response(payload, media_type="application/json")
 
 
 @app.get("/volumes/{volume_id}")
 def volume(volume_id: str):
-    if volume_id not in CACHE:
+    v = _get_volume(volume_id)
+    if v is None:
         raise HTTPException(404, "Volume not loaded")
-    return Response(CACHE[volume_id].descriptor.model_dump_json(), media_type="application/json")
+    return Response(v.descriptor.model_dump_json(), media_type="application/json")
 
 
 @app.get("/volumes/{volume_id}/sweeps/{sweep_id}/moments/{moment}")
 def moment_bytes(volume_id: str, sweep_id: str, moment: Moment):
-    if volume_id not in CACHE:
+    v = _get_volume(volume_id)
+    if v is None:
         raise HTTPException(404, "Volume not loaded")
-    data = CACHE[volume_id].arrays.get((sweep_id, moment))
+    data = v.arrays.get((sweep_id, moment))
     if data is None:
         raise HTTPException(404, "Sweep/moment not available")
     return Response(data.tobytes(order="C"), media_type="application/octet-stream",
@@ -131,7 +155,20 @@ def preload(path: str | Path, radar_id: str = "KMOB") -> str:
 
 
 archive = os.environ.get("GR2LITE_ARCHIVE_PATH")
-if archive:
-    @app.on_event("startup")
-    def load_server_archive():
+
+@app.on_event("startup")
+def start_ingestion():
+    global LIVE_POLLER
+    if os.environ.get("GR2LITE_MODE", "archive").lower() == "live":
+        LIVE_STORE.mode = "live"
+        LIVE_POLLER = LiveArchivePoller(
+            LIVE_STORE, interval=float(os.environ.get("GR2LITE_POLL_SECONDS", "45"))
+        )
+        LIVE_POLLER.start()
+    elif archive:
         preload(archive, os.environ.get("GR2LITE_RADAR", "KMOB"))
+
+@app.on_event("shutdown")
+def stop_ingestion():
+    if LIVE_POLLER is not None:
+        LIVE_POLLER.stop()
