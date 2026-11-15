@@ -5,6 +5,8 @@ import type {Moment,RadarFrame,VolumeDescriptor,SweepDescriptor} from './radar';
 import {PolarRadarLayer} from './radarLayer';
 import {getPalette,cssGradient} from './palettes';
 import {installBoundaries} from './overlays';
+import {PanelManager} from './panels';
+import {valueFactor} from './palettes';
 
 const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const apiInput=el<HTMLInputElement>('apiRoot');
@@ -41,11 +43,16 @@ let sweep:SweepDescriptor|undefined;
 let current:RadaFrameAlias|undefined;
 type RadaFrameAlias = RadarFrame;
 let request=0;
-let feedMode:'archive'|'live'='archive';
+let feedMode:'archive'|'live'|'chunks'='archive';
 let feedState='empty';
 let availableVolumes:VolumeDescriptor[]=[];
+let panelManager:PanelManager;
 let syncing=false;
 let boundariesLoaded=false;
+panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),s=>{sweep=s;renderTiltOptions();void loadFrame();});
+document.querySelectorAll<HTMLButtonElement>('#layoutButtons button').forEach(button=>{
+  button.onclick=()=>panelManager.setCount(Number(button.dataset.panels) as 1|2|4|16);
+});
 const frameCache=new Map<string,RadarFrame>();
 function cacheKey(v:VolumeDescriptor,s:SweepDescriptor,m:Moment){return v.volume_id+'|'+s.id+'|'+m;}
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
@@ -75,9 +82,9 @@ function renderTiltOptions(){
 }
 function paintLegend(){
   const p=getPalette(moment,el<HTMLSelectElement>('palette').value);
-  el<HTMLDivElement>('legend-gradient').style.background=cssGradient(p);
-  el<HTMLSpanElement>('legend-min').textContent=String(p.min);
-  el<HTMLSpanElement>('legend-max').textContent=String(p.max);
+  el<HTMLDivElement>('legend-gradient').style.background=cssGradient(p).replace('to right','to top');
+  el<HTMLSpanElement>('legend-min').textContent=p.min+' '+p.unit;
+  el<HTMLSpanElement>('legend-max').textContent=p.max+' '+p.unit;
   el<HTMLDivElement>('legend-title').textContent=moment+' color scale';
 }
 async function loadFrame(){
@@ -95,9 +102,13 @@ async function loadFrame(){
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
-    let count=0, low=Infinity, high=-Infinity;
-    for(const value of frame.values){
-      if(Number.isFinite(value)){count++;low=Math.min(low,value);high=Math.max(high,value);}
+    let count=0, high=-Infinity, peak=-1;
+    for(let j=0;j<frame.values.length;j++){
+      const value=frame.values[j];
+      if(Number.isFinite(value)){
+        count++;
+        if(value>high){high=value;peak=j;}
+      }
     }
     const echoes=m==='REF' ? frame.values.reduce((n,value)=>n+(Number.isFinite(value)&&value>=5?1:0),0):null;
     el<HTMLSpanElement>('validLabel').textContent=
@@ -108,9 +119,23 @@ async function loadFrame(){
     const selectedTimes=s.time_utc.filter(Boolean);
     const timestamp=selectedTimes.length?new Date(selectedTimes[0]).toISOString().slice(0,19).replace('T',' ')+'Z':'Time unavailable';
     el<HTMLSpanElement>('scanTime').textContent=timestamp;
-    el<HTMLSpanElement>('momentLabel').textContent=moment+' • '+frame.descriptor.units;
+    const pal=getPalette(moment,el<HTMLSelectElement>('palette').value);
+    el<HTMLSpanElement>('momentLabel').textContent=moment+' • '+pal.unit;
+    const timeList=v.sweeps.flatMap(s=>s.time_utc);
+    const vst=timeList.length?new Date(Math.min(...timeList.map(t=>new Date(t).getTime()))).toISOString().slice(11,19)+'Z':'—';
+    const latestTime=s.time_utc.length?new Date(s.time_utc[s.time_utc.length-1]).toISOString().slice(11,19)+'Z':'—';
+    const maxRay=peak<0?0:Math.floor(peak/frame.descriptor.gates);
+    const maxGate=peak<0?0:peak%frame.descriptor.gates;
+    const rangeKm=(frame.descriptor.first_gate_m+maxGate*frame.descriptor.gate_spacing_m)/1000;
+    const maxValue=high*valueFactor(moment,frame.descriptor.units);
+    el<HTMLDivElement>('radarMeta').textContent=
+      'Site: '+v.radar_id+'\nVST: '+vst+'\nProduct: '+latestTime+
+      '\nTilt: '+s.fixed_angle_deg.toFixed(2)+'°'+
+      '\nMoment: '+moment+'\nMax: '+(Number.isFinite(maxValue)?maxValue.toFixed(1):'—')+' '+pal.unit+
+      '\nAz: '+(peak>=0?s.azimuth_deg[maxRay].toFixed(1):'—')+'°'+
+      '\nRange: '+(peak>=0?rangeKm.toFixed(1):'—')+' km';
     el<HTMLSpanElement>('angleLabel').textContent=s.fixed_angle_deg.toFixed(2)+'° / CUT '+s.index;
-    el<HTMLSpanElement>('volumeLabel').textContent=(feedMode==='live'?'NEAR-LIVE':'ARCHIVE')+' • '+v.volume_id;
+    el<HTMLSpanElement>('volumeLabel').textContent=(feedMode==='chunks'?'CHUNKS':feedMode==='live'?'NEAR-LIVE':'ARCHIVE')+' • '+v.volume_id;
     el<HTMLDivElement>('gate').textContent='Click a valid radar gate to inspect the native '+m+' measurement.';
     setStatus(feedMode==='live' ? 'NEAR-LIVE • '+feedState.toUpperCase() : 'ARCHIVE READY',
       feedState==='stale'||feedState==='error'?'error': 'ok');
@@ -160,13 +185,13 @@ async function syncRadar(initial=false){
     const response=await fetch(root+'/radar/status',{cache:'no-store'});
     if(!response.ok)throw new Error('Backend radar status: HTTP '+response.status);
     const info=await response.json() as {
-      mode:'archive'|'live';state:string;latest_volume_id:string|null;
+      mode:'archive'|'live'|'chunks';state:string;latest_volume_id:string|null;feed_source?:string;
       age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
     };
     feedMode=info.mode;feedState=info.state;
     const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
-    el<HTMLParagraphElement>('feedInfo').textContent=info.mode==='live'
-      ? 'Near-live completed volumes • newest ray '+age+' old'+
+    el<HTMLParagraphElement>('feedInfo').textContent=info.mode!=='archive'
+      ? (info.mode==='chunks'?'Incremental chunks':'Completed volumes')+' • '+(info.feed_source??'feed')+' • latest ray '+age+' old'+
         (info.last_error?' • last update error: '+info.last_error:'')
       : 'Archived volume • automatic updates disabled';
     const list=await fetchVolumes(root);
@@ -185,12 +210,13 @@ async function syncRadar(initial=false){
       await chooseVolume(target,initial);
     }else{
       currentHistory();
-      setStatus(feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
+      setStatus(feedMode==='chunks'?'CHUNKS • '+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
         feedState==='stale'||feedState==='error'?'error':'ok');
     }
     if(!boundariesLoaded&&map.isStyleLoaded()){
       boundariesLoaded=true;
       void installBoundaries(map,root);
+      void panelManager.loadBoundaries();
     }
     clearError();
   }catch(e){
@@ -250,10 +276,17 @@ map.on('click',e=>{
 window.addEventListener('keydown',e=>{
   if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;
   if(e.key==='ArrowUp'||e.key==='ArrowDown'){
-    e.preventDefault();const cuts=volume?.sweeps.filter(s=>s.moments[moment])??[];
-    const idx=cuts.findIndex(s=>s.id===sweep?.id);
-    if(!cuts.length)return;
-    sweep=cuts[(idx+(e.key==='ArrowUp'?1:-1)+cuts.length)%cuts.length];
+    e.preventDefault();
+    if(panelManager.count===16)return;
+    // Strictly move to a greater/lower *elevation angle*: skip split-cut duplicates.
+    const cuts=[...(volume?.sweeps.filter(s=>s.moments[moment])??[])]
+      .sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg);
+    const angle=sweep?.fixed_angle_deg??-1;
+    const chosen=e.key==='ArrowUp'
+      ? cuts.find(s=>s.fixed_angle_deg>angle+0.16)
+      : [...cuts].reverse().find(s=>s.fixed_angle_deg<angle-0.16);
+    if(!chosen)return; // never wrap from highest to lowest on arrow-up
+    sweep=chosen;
     renderTiltOptions();void loadFrame();
   }
   if(e.key==='Delete'&&volume){
