@@ -53,6 +53,8 @@ class RadarStore:
         self.last_success: datetime | None = None
         self.last_error: str | None = None
         self.feed_source = "archive"
+        self.chunk_count = 0
+        self.chunk_volume = None
 
     def publish(self, volume: DecodedVolume) -> bool:
         with self._lock:
@@ -93,6 +95,9 @@ class RadarStore:
             return {
                 "mode": self.mode,
                 "feed_source": self.feed_source,
+                "chunk_count": self.chunk_count,
+                "chunk_volume": self.chunk_volume,
+                "complete_sweeps": len(v.descriptor.sweeps) if v else 0,
                 "state": ("error" if self.last_error and not v else
                           "empty" if not v else
                           "stale" if age is not None and age > 1200 and self.mode != "archive" else
