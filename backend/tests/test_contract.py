@@ -64,7 +64,7 @@ def test_missing_gate_is_not_converted_to_zero():
 
 def test_nonfinite_optional_radar_altitude_is_normalized_and_api_returns_json():
     tree = sample_tree()
-    tree["/"].ds["altitude"] = xr.DataArray(np.nan)
+    tree["/"]["altitude"] = xr.DataArray(np.nan)
     volume = decode_tree(tree, "KMOB", "nan-alt")
     assert volume.descriptor.radar_alt_m is None
     CACHE.clear()
