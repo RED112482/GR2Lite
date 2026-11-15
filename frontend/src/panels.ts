@@ -124,6 +124,7 @@ export class PanelManager {
   }
   async loadBoundaries(){
     const color:Record<string,string>={counties:'#697e91',states:'#c5d3e1',cwa:'#efb65f'};
+    this.segments=[];
     for(const kind of ['counties','states','cwa']){
       try{
         const response=await fetch(this.api().replace(/\/$/,'')+'/boundaries/'+kind);
@@ -218,6 +219,30 @@ export class PanelManager {
         const frame=await this.getFrame(volume,tile);
         if(this.generation!==generation)return;
         drawFrame(canvas,frame,this.map,this.segments);
+        canvas.onclick=(e)=>{
+          const rect=canvas.getBoundingClientRect();
+          const xf=(e.clientX-rect.left)/rect.width, yf=(e.clientY-rect.top)/rect.height;
+          const mapSize=this.map.getContainer().getBoundingClientRect();
+          const world=512*2**this.map.getZoom();
+          const [cx,cy]=projection(this.map.getCenter().lng,this.map.getCenter().lat);
+          const [rx,ry]=projection(frame.volume.radar_lon,frame.volume.radar_lat);
+          const scale=40075016.686*Math.cos(frame.volume.radar_lat*Math.PI/180);
+          const east=(cx+(xf-0.5)*mapSize.width/world-rx)*scale;
+          const north=(ry-cy-(yf-0.5)*mapSize.height/world)*scale;
+          const range=Math.hypot(east,north);
+          const az=(Math.atan2(east,north)*180/Math.PI+360)%360;
+          const lookup=lookupFor(frame);
+          const ray=lookup[Math.floor(az*10)%3600];
+          const gate=Math.round((range-frame.descriptor.first_gate_m)/frame.descriptor.gate_spacing_m);
+          const value=ray>=0&&gate>=0&&gate<frame.descriptor.gates
+            ?frame.values[ray*frame.descriptor.gates+gate]*valueFactor(frame.moment,frame.descriptor.units):NaN;
+          const unit=getPalette(frame.moment,'operational').unit;
+          const info=document.getElementById('gate');
+          if(info)info.textContent=frame.moment+' • '+tile.label+' • '+tile.sweep.id+
+            '\\nGate: '+(Number.isFinite(value)?value.toFixed(2)+' '+unit:'NO DATA')+
+            '\\nAzimuth: '+az.toFixed(2)+'°\\nRange: '+(range/1000).toFixed(2)+' km'+
+            '\\nRadial / gate: '+ray+' / '+gate;
+        };
       }catch(e){
         caption.textContent+=' • UNAVAILABLE';
         console.warn('Tile not available',e);
