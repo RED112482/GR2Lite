@@ -17,8 +17,11 @@
       <div class="section"><div class="section-title">SOURCE</div>
         <label for="apiRoot">Backend URL</label>
         <input id="apiRoot" type="text" placeholder="Local API or cloud URL" spellcheck="false"/>
-        <button id="connect">Connect to archive</button>
-        <p class="help">Local Vite preview: <code>/api</code>. For a cloud API, enter its HTTPS origin. This version reads one preloaded archive volume.</p>
+        <button id="connect">Reconnect radar</button>
+        <div class="control-row"><label for="history">Volume history (UTC)</label><select id="history"></select></div>
+        <label class="follow-live"><input id="followLive" type="checkbox" checked/> Follow latest volume</label>
+        <p id="feedInfo" class="help">Checking radar feed…</p>
+        <p class="help">Local viewer uses <code>/api</code>. The backend can run in LIVE (recent completed volumes) or ARCHIVE mode. Cloud access requires a deployed backend.</p>
       </div>
       <div class="section"><div class="section-title">RADAR PRODUCT</div>
         <div id="moments" class="moment-buttons"></div>
@@ -40,7 +43,7 @@
         <p class="help">Mouse wheel: zoom · drag: pan · ↑/↓: next/previous cut · Delete: REF/VEL</p>
       </div>
       <div class="section"><div class="section-title">DATA NOTES</div>
-        <p class="help">Experimental renderer. Geolocation uses a local planar approximation and native gate values; not verified for warning operations. Archive-only (no live feed yet). Unavailable gates are transparent.</p>
+        <p class="help">Experimental renderer. Geolocation uses a local planar approximation and native gate values; not verified for warning operations. Near-live mode polls completed Level-II volumes; it does not yet ingest partial sweeps. Never use experimentally decoded data for operational warning decisions.</p>
       </div>
     </aside>
     <main class="map-wrap"><div id="map"></div><div id="map-error" class="map-error hidden"></div>
