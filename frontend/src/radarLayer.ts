@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import type {RadarFrame} from './radar';
-import {getPalette, palettePixels} from './palettes';
+import {getPalette, palettePixels, valueFactor} from './palettes';
 
 const VERTEX = `#version 300 es
 in vec2 a_pos;
@@ -27,6 +27,7 @@ uniform float u_gates_count;
 uniform float u_min;
 uniform float u_max;
 uniform float u_opacity;
+uniform float u_value_factor;
 void main() {
   vec2 offset = (v_merc - u_radar_merc) * u_scale;
   float east = offset.x;
@@ -42,7 +43,7 @@ void main() {
   int ray = int(token + 0.5) - 1;
   float value = texelFetch(u_gates, ivec2(int(g),ray),0).r;
   if (isnan(value) || isinf(value)) discard;
-  float fraction = clamp((value-u_min)/max(u_max-u_min,0.001),0.0,1.0);
+  float fraction = clamp((value*u_value_factor-u_min)/max(u_max-u_min,0.001),0.0,1.0);
   vec4 color = texture(u_palette,vec2(fraction,0.5));
   fragColor = vec4(color.rgb * u_opacity, u_opacity);
 }
@@ -195,6 +196,7 @@ export class PolarRadarLayer {
     const p=getPalette(this.frame.moment,this.paletteStyle);
     gl.uniform1f(loc('u_min'),p.min);gl.uniform1f(loc('u_max'),p.max);
     gl.uniform1f(loc('u_opacity'),this.opacity);
+    gl.uniform1f(loc('u_value_factor'),valueFactor(this.frame.moment,this.frame.descriptor.units));
     for(let i=0;i<3;i++){const t=[this.gateTexture,this.lookupTexture,this.paletteTexture][i]!;
       gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);}
     gl.uniform1i(loc('u_gates'),0);gl.uniform1i(loc('u_lookup'),1);gl.uniform1i(loc('u_palette'),2);
