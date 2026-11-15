@@ -87,6 +87,9 @@ export class PolarRadarLayer {
   private radarXY:[number,number]=[0,0];
   private scale=1;
   private frame?:RadarFrame;
+  onGpuStatus?: (status: string) => void;
+  private firstDrawNotified=false;
+  private gpuFailed=false;
   isReady():boolean { return Boolean(this.gl && this.program && this.vao); }
   private paletteStyle='operational';
   private opacity=0.85;
@@ -116,6 +119,8 @@ export class PolarRadarLayer {
 
   setFrame(frame:RadarFrame) {
     this.frame=frame;
+    this.firstDrawNotified=false;
+    this.gpuFailed=false;
     this.lookup.fill(0);
     // Index all azimuth bins. Nearest rays across gaps > 0.8 deg are rejected.
     for(let bin=0;bin<3600;bin++){
@@ -166,16 +171,22 @@ export class PolarRadarLayer {
     setupNearest(gl,this.lookupTexture!,1);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,3600,1,0,gl.RED,gl.FLOAT,this.lookup);
     this.uploadPalette();
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      throw new Error('WebGL texture upload failed with GL error 0x'+error.toString(16));
+    }
     this.map?.triggerRepaint();
   }
-  render(context: WebGLRenderingContext | WebGL2RenderingContext, {modelViewProjectionMatrix}: maplibregl.CustomRenderMethodInput){
+  render(context: WebGLRenderingContext | WebGL2RenderingContext, options: maplibregl.CustomRenderMethodInput){
     if (!(context instanceof WebGL2RenderingContext)) return;
     const gl=context;
     if(!this.frame||!this.program||!this.vao)return;
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
     const loc=(name:string)=>gl.getUniformLocation(this.program!,name);
-    gl.uniformMatrix4fv(loc('u_matrix'),false,modelViewProjectionMatrix);
+    // MapLibre's documented Mercator projection matrix takes world [0,1] coordinates.
+    // The world-space modelViewProjectionMatrix is not the appropriate input here.
+    gl.uniformMatrix4fv(loc('u_matrix'),false,options.defaultProjectionData.mainMatrix);
     gl.uniform2f(loc('u_radar_merc'),...this.radarXY);
     gl.uniform1f(loc('u_scale'),this.scale);
     gl.uniform1f(loc('u_first'),this.frame.descriptor.first_gate_m);
@@ -190,8 +201,20 @@ export class PolarRadarLayer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.DEPTH_TEST);
+    // MapLibre may leave face culling enabled: our full radar quad must not be culled.
+    gl.disable(gl.CULL_FACE);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     gl.bindVertexArray(null);
+    if(!this.firstDrawNotified && !this.gpuFailed){
+      const error=gl.getError();
+      if(error!==gl.NO_ERROR){
+        this.gpuFailed=true;
+        this.onGpuStatus?.('GPU ERROR 0x'+error.toString(16));
+      }else{
+        this.firstDrawNotified=true;
+        this.onGpuStatus?.('GPU DRAW OK');
+      }
+    }
   }
   sample(lon:number,lat:number):GateHit|null{
     const frame=this.frame;
