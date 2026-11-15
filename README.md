@@ -8,14 +8,48 @@ streaming, or an operationally verified Level-II decode of a real KMOB volume.
 
 ## Python development
 
-Requires Python 3.12+.
+Requires **Python 3.12+**. Windows users with Anaconda must create and **activate**
+a Python 3.12 virtual environment, not use the Anaconda `(base)` environment.
+
+### Windows PowerShell (recommended)
+
+First install Python 3.12 from https://www.python.org/downloads/ if `py -3.12`
+is not available. From the `backend` folder, run:
+
+```powershell
+py -0p
+# Remove the previously created .venv ONLY if it uses the wrong Python version:
+if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
+py -3.12 -m venv .venv
+.\\.venv\\Scripts\\python.exe --version
+.\\.venv\\Scripts\\python.exe -m pip install --upgrade pip
+.\\.venv\\Scripts\\python.exe -m pip install -e ".[test]"
+.\\.venv\\Scripts\\python.exe -m pytest -q
+```
+
+Using the venv's `python.exe` explicitly avoids Anaconda's `(base)` interpreter
+even if the shell does not activate the venv. You should see `Python 3.12.x`.
+The package installation must succeed before testing. Running bare `pytest`
+can accidentally invoke the global Anaconda executable.
+
+Optional activation:
+```powershell
+.\\.venv\\Scripts\\Activate.ps1
+python --version
+python -m pytest -q
+```
+
+If PowerShell prevents activation, use the explicit `.venv\\Scripts\\python.exe`
+commands above; you do not need to weaken execution policy.
+
+### Linux / macOS
 
 ```bash
 cd backend
-python -m venv .venv
-# Activate .venv (Windows: .venv\\Scripts\\activate; Linux: source .venv/bin/activate)
+python3.12 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e '.[test]'
-pytest -q
+python -m pytest -q
 ```
 
 ## Find and download an archived KMOB volume
