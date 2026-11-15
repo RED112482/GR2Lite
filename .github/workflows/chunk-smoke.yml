@@ -1,0 +1,41 @@
+name: Real KMOB chunk smoke check
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/chunk-smoke.yml'
+jobs:
+  live-chunks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ./backend
+      - name: Read S3 chunk listing and decode a complete sweep when available
+        shell: bash
+        run: |
+          python - <<'PY'
+          import boto3
+          from botocore import UNSIGNED
+          from botocore.config import Config
+          from gr2lite.chunks import latest_listing, BUCKET, IncrementalChunkPoller
+          from gr2lite.live import RadarStore
+          s3=boto3.client("s3",region_name="us-east-1",config=Config(
+              signature_version=UNSIGNED,connect_timeout=8,read_timeout=30))
+          stamp,keys=latest_listing(s3)
+          print("UTC volume stamp:",stamp,"contiguous chunks:",len(keys))
+          print("S chunk:",keys[0])
+          store=RadarStore(limit=2)
+          poller=IncrementalChunkPoller(store)
+          outcome=poller.poll_once()
+          print("new completed sweeps published:",outcome)
+          print("status:",store.status())
+          if outcome:
+              assert store.list()[0].descriptor.sweeps
+              print("PASS: incremental chunk stream decoded at least one complete cut")
+          else:
+              print("INCONCLUSIVE: no complete cut in latest S3 listing")
+          PY
