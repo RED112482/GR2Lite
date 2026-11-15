@@ -155,7 +155,7 @@ async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
 async function syncRadar(initial=false){
   if(syncing)return;
   syncing=true;
-  const root=apiInput.value.trim().replace(/\\/$/,'');
+  const root=apiInput.value.trim().replace(/\/$/,'');
   try{
     const response=await fetch(root+'/radar/status',{cache:'no-store'});
     if(!response.ok)throw new Error('Backend radar status: HTTP '+response.status);
