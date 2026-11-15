@@ -52,9 +52,19 @@ class RadarStore:
         self.last_check: datetime | None = None
         self.last_success: datetime | None = None
         self.last_error: str | None = None
+        self.feed_source = "archive"
 
-    def publish(self, volume: DecodedVolume) -> None:
+    def publish(self, volume: DecodedVolume) -> bool:
         with self._lock:
+            # Guard against older archive fallback replacing a newer sweep snapshot.
+            def last_ray(v):
+                stamps = [max(s.time_utc) for s in v.descriptor.sweeps if s.time_utc]
+                return max(stamps) if stamps else None
+            incoming = last_ray(volume)
+            newest = next(iter(self._items.values()), None)
+            existing = last_ray(newest) if newest else None
+            if incoming is not None and existing is not None and incoming < existing:
+                return False
             key = volume.descriptor.volume_id
             self._items[key] = volume
             self._items.move_to_end(key, last=False)
@@ -62,6 +72,7 @@ class RadarStore:
                 self._items.popitem(last=True)
             self.last_success = datetime.now(timezone.utc)
             self.last_error = None
+            return True
 
     def list(self) -> list[DecodedVolume]:
         with self._lock:
@@ -81,9 +92,10 @@ class RadarStore:
             age = (datetime.now(timezone.utc) - sample_time).total_seconds() if sample_time else None
             return {
                 "mode": self.mode,
+                "feed_source": self.feed_source,
                 "state": ("error" if self.last_error and not v else
                           "empty" if not v else
-                          "stale" if age is not None and age > 1200 and self.mode == "live" else
+                          "stale" if age is not None and age > 1200 and self.mode != "archive" else
                           "delayed" if age is not None and age > 600 and self.mode == "live" else
                           "ready"),
                 "latest_volume_id": latest,
@@ -121,7 +133,9 @@ class LiveArchivePoller:
             local = Path(temp) / Path(key).name
             self.s3.download_file(BUCKET, key, str(local))
             result = decode_archive(local, "KMOB")
-            self.store.publish(result)
+            published=self.store.publish(result)
+        if published:
+            self.store.feed_source = "archive-fallback" if self.store.mode == "chunks" else "archive"
         self.last_key = key
         LOG.info("Published KMOB volume %s", result.descriptor.volume_id)
         return True
