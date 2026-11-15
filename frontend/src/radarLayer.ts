@@ -87,6 +87,7 @@ export class PolarRadarLayer {
   private radarXY:[number,number]=[0,0];
   private scale=1;
   private frame?:RadarFrame;
+  isReady():boolean { return Boolean(this.gl && this.program && this.vao); }
   private paletteStyle='operational';
   private opacity=0.85;
 
