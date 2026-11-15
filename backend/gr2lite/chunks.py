@@ -47,26 +47,25 @@ def contiguous_prefix(keys: list[str]) -> list[str]:
     return ordered
 
 def latest_listing(s3) -> tuple[str, list[str]]:
-    """Discover short-lived volume prefixes and select newest by timestamp, not cycle ID."""
-    prefixes=[]
-    paginator=s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET,Prefix="KMOB/",Delimiter="/"):
-        prefixes.extend(entry["Prefix"] for entry in page.get("CommonPrefixes",[]))
+    """Choose the newest volume by UTC stamp, not rotating volume number.
+
+    Listing all KMOB objects via S3 pagination is more efficient than making
+    a separate network request for every cycle prefix.
+    """
     groups=defaultdict(list)
-    for prefix in prefixes:
-        for page in paginator.paginate(Bucket=BUCKET,Prefix=prefix):
-            for entry in page.get("Contents",[]):
-                key=entry["Key"]
-                parsed=parse_chunk(key)
-                if parsed:
-                    groups[(prefix,parsed[0])].append(key)
+    paginator=s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=BUCKET,Prefix="KMOB/"):
+        for entry in page.get("Contents",[]):
+            key=entry["Key"]
+            parsed=parse_chunk(key)
+            if parsed:
+                groups[parsed[0]].append(key)
     if not groups:
         raise RuntimeError("No currently available KMOB real-time chunks")
-    candidates=sorted(groups, key=lambda p:p[1],reverse=True)
-    for key in candidates:
-        keys=contiguous_prefix(groups[key])
-        if keys:
-            return key[1],keys
+    for stamp in sorted(groups,reverse=True):
+        ordered=contiguous_prefix(groups[stamp])
+        if ordered:
+            return stamp,ordered
     raise RuntimeError("KMOB chunk listing has no volume containing its S header")
 
 class IncrementalChunkPoller(LiveArchivePoller):
