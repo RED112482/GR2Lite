@@ -23,11 +23,22 @@
         <p id="feedInfo" class="help">Checking radar feed…</p>
         <p class="help">Local viewer uses <code>/api</code>. The backend can run in LIVE (recent completed volumes) or ARCHIVE mode. Cloud access requires a deployed backend.</p>
       </div>
-      <div class="section"><div class="section-title">RADAR PRODUCT</div>
+      <div class="section"><div class="section-title">VIEW LAYOUT</div>
+        <div id="layoutButtons" class="layout-buttons">
+          <button data-panels="1" class="active">1</button>
+          <button data-panels="2">2</button>
+          <button data-panels="4">4</button>
+          <button data-panels="16">16</button>
+        </div>
+        <p class="help">16-panel: all unique elevation angles, lowest first. Use page arrows if more than 16.</p>
+      </div><div class="section"><div class="section-title">RADAR PRODUCT</div>
         <div id="moments" class="moment-buttons"></div>
         <div class="control-row"><label for="tilt">Elevation cut</label><select id="tilt"></select></div>
         <div class="control-row"><label for="palette">Color table</label><select id="palette"><option value="operational">Operational</option><option value="contrast">High contrast</option></select></div>
         <div class="control-row"><label for="opacity">Opacity</label><input id="opacity" type="range" min="20" max="100" value="85"/></div>
+      </div>
+      <div class="section"><div class="section-title">VOLUME / PRODUCT DETAILS</div>
+        <div id="radarMeta" class="radar-meta">Waiting for scan metadata</div>
       </div>
       <div class="section"><div class="section-title">INTERROGATION</div>
         <div id="gate" class="gate">Click a radar gate to inspect its measured value, azimuth and slant range.</div>
@@ -46,7 +57,7 @@
         <p class="help">Experimental renderer. Geolocation uses a local planar approximation and native gate values; not verified for warning operations. Near-live mode polls completed Level-II volumes; it does not yet ingest partial sweeps. Never use experimentally decoded data for operational warning decisions.</p>
       </div>
     </aside>
-    <main class="map-wrap"><div id="map"></div><div id="map-error" class="map-error hidden"></div>
+    <main class="map-wrap"><div id="map"></div><div id="panelGrid" class="panel-grid hidden"></div><div id="map-error" class="map-error hidden"></div>
       <div class="map-hud"><span id="momentLabel">NO RADAR DATA</span><span id="angleLabel">—</span><span id="volumeLabel">ARCHIVE</span><span id="validLabel">Awaiting data</span><span id="gpuLabel">GPU WAITING</span></div>
       <div class="legend"><div id="legend-title">Radar moment</div><div id="legend-gradient"></div><div class="legend-edges"><span id="legend-min"></span><span id="legend-max"></span></div></div>
     </main>
