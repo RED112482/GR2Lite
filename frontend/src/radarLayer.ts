@@ -167,7 +167,9 @@ export class PolarRadarLayer {
     this.uploadPalette();
     this.map?.triggerRepaint();
   }
-  render({gl,modelViewProjectionMatrix}: {gl:WebGL2RenderingContext;modelViewProjectionMatrix:Float32Array}){
+  render(context: WebGLRenderingContext | WebGL2RenderingContext, {modelViewProjectionMatrix}: maplibregl.CustomRenderMethodInput){
+    if (!(context instanceof WebGL2RenderingContext)) return;
+    const gl=context;
     if(!this.frame||!this.program||!this.vao)return;
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
