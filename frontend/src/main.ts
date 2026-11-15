@@ -32,6 +32,7 @@ const map=new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
 const radar=new PolarRadarLayer();
+radar.onGpuStatus=(text)=>{el<HTMLSpanElement>('gpuLabel').textContent=text;};
 map.once('load',()=>{try{map.addLayer(radar);}catch(e){showError(e);}});
 map.on('error',e=>console.warn('Map tile or renderer warning',e.error));
 let volume:VolumeDescriptor|undefined;
@@ -93,8 +94,11 @@ async function loadFrame(){
     for(const value of frame.values){
       if(Number.isFinite(value)){count++;low=Math.min(low,value);high=Math.max(high,value);}
     }
-    el<HTMLSpanElement>('validLabel').textContent=count.toLocaleString()+' valid gates';
+    const echoes=m==='REF' ? frame.values.reduce((n,value)=>n+(Number.isFinite(value)&&value>=5?1:0),0):null;
+    el<HTMLSpanElement>('validLabel').textContent=
+      count.toLocaleString()+' finite bins'+(echoes!==null?' • '+echoes.toLocaleString()+' ≥5 dBZ':'');
     if(!count)throw new Error('This radar cut contains no finite '+m+' gates. Try another tilt or radar moment.');
+    el<HTMLSpanElement>('gpuLabel').textContent=radar.isReady()?'GPU UPLOADED':'GPU INITIALIZING';
     if(!radar.isReady())console.warn('Radar frame received but GPU layer is not ready; inspect browser console.');
     const selectedTimes=s.time_utc.filter(Boolean);
     const timestamp=selectedTimes.length?new Date(selectedTimes[0]).toISOString().slice(0,19).replace('T',' ')+'Z':'Time unavailable';
