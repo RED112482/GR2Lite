@@ -13,13 +13,13 @@ def test_parse_and_gap_handling():
     assert parse_chunk("KMOB/42/../../bad") is None
 
 class Paginator:
-    def paginate(self, Bucket, Prefix, Delimiter=None):
-        if Delimiter:
-            yield {"CommonPrefixes":[{"Prefix":"KMOB/999/"},{"Prefix":"KMOB/000/"}]}
-        elif Prefix=="KMOB/999/":
-            yield {"Contents":[{"Key":key(999,"20261114-235800",1,"S")}]}
-        else:
-            yield {"Contents":[{"Key":key(0,"20261115-000200",1,"S")},{"Key":key(0,"20261115-000200",2,"I")}]}
+    def paginate(self, Bucket, Prefix):
+        assert Prefix == "KMOB/"
+        yield {"Contents":[
+            {"Key":key(999,"20261114-235800",1,"S")},
+            {"Key":key(0,"20261115-000200",1,"S")},
+            {"Key":key(0,"20261115-000200",2,"I")},
+        ]}
 class S3:
     def get_paginator(self, name):
         assert name=="list_objects_v2"
