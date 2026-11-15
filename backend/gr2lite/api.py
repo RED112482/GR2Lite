@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
+from pydantic import TypeAdapter
+from .models import VolumeDescriptor
 from fastapi.middleware.cors import CORSMiddleware
 from .decoder import DecodedVolume, decode_archive
 from .models import Moment
@@ -29,14 +31,19 @@ def health():
 
 @app.get("/volumes")
 def volumes():
-    return [v.descriptor.model_dump(mode="json") for v in CACHE.values()]
+    # Pydantic JSON serializes optional non-finite values as null instead of
+    # allowing Starlette JSONResponse to crash with "Out of range float values".
+    payload = TypeAdapter(list[VolumeDescriptor]).dump_json(
+        [v.descriptor for v in CACHE.values()]
+    )
+    return Response(payload, media_type="application/json")
 
 
 @app.get("/volumes/{volume_id}")
 def volume(volume_id: str):
     if volume_id not in CACHE:
         raise HTTPException(404, "Volume not loaded")
-    return CACHE[volume_id].descriptor
+    return Response(CACHE[volume_id].descriptor.model_dump_json(), media_type="application/json")
 
 
 @app.get("/volumes/{volume_id}/sweeps/{sweep_id}/moments/{moment}")
