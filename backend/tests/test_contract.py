@@ -61,3 +61,21 @@ def test_missing_gate_is_not_converted_to_zero():
     result = decode_tree(sample_tree(), "KMOB", "fixture")
     raw = result.arrays[("sweep_0", Moment.REF)].tobytes()
     assert np.isnan(np.frombuffer(raw, dtype="<f4")[2])
+
+def test_nonfinite_optional_radar_altitude_is_normalized_and_api_returns_json():
+    tree = sample_tree()
+    tree["/"].ds["altitude"] = xr.DataArray(np.nan)
+    volume = decode_tree(tree, "KMOB", "nan-alt")
+    assert volume.descriptor.radar_alt_m is None
+    CACHE.clear()
+    CACHE["nan-alt"] = volume
+    try:
+        with TestClient(app) as client:
+            response = client.get("/volumes")
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data) == 1
+            assert data[0]["radar_alt_m"] is None
+            assert data[0]["sweeps"][0]["moments"]["REF"]["gates"] == 3
+    finally:
+        CACHE.clear()
