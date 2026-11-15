@@ -112,7 +112,7 @@ async function loadFrame(){
     el<HTMLSpanElement>('angleLabel').textContent=s.fixed_angle_deg.toFixed(2)+'° / CUT '+s.index;
     el<HTMLSpanElement>('volumeLabel').textContent=(feedMode==='live'?'NEAR-LIVE':'ARCHIVE')+' • '+v.volume_id;
     el<HTMLDivElement>('gate').textContent='Click a valid radar gate to inspect the native '+m+' measurement.';
-    setStatus(feedMode==='live' ? 'LIVE • '+feedState.toUpperCase() : 'ARCHIVE READY',
+    setStatus(feedMode==='live' ? 'NEAR-LIVE • '+feedState.toUpperCase() : 'ARCHIVE READY',
       feedState==='stale'||feedState==='error'?'error': 'ok');
     clearError();
   }catch(e){if(id===request)showError(e);}
@@ -185,7 +185,7 @@ async function syncRadar(initial=false){
       await chooseVolume(target,initial);
     }else{
       currentHistory();
-      setStatus(feedMode==='live'?'LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
+      setStatus(feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
         feedState==='stale'||feedState==='error'?'error':'ok');
     }
     if(!boundariesLoaded&&map.isStyleLoaded()){
