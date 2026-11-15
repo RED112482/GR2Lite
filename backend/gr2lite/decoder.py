@@ -122,8 +122,9 @@ def decode_tree(tree, radar_id: str, volume_id: str) -> DecodedVolume:
         desc, data = _read_sweep(tree[sweep_id].ds, sweep_id, int(sweep_id.split("_")[-1]))
         sweeps.append(desc)
         arrays.update(data)
+    vcp = str(root.attrs.get("scan_name", "")) or None
     return DecodedVolume(
-        VolumeDescriptor(volume_id=volume_id, radar_id=radar_id,
+        VolumeDescriptor(volume_id=volume_id, radar_id=radar_id, vcp=vcp,
                          radar_lat=lat, radar_lon=lon, radar_alt_m=alt, sweeps=sweeps), arrays)
 
 
