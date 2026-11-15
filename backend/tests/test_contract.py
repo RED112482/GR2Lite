@@ -1,0 +1,63 @@
+from datetime import datetime, timezone
+import numpy as np
+import pytest
+import xarray as xr
+from fastapi.testclient import TestClient
+from gr2lite.decoder import decode_tree, _range_geometry
+from gr2lite.models import Moment
+from gr2lite.api import app, CACHE
+
+
+def sample_tree():
+    times = np.array(["2024-06-04T21:00:00", "2024-06-04T21:00:03"], dtype="datetime64[ns]")
+    coords = {"azimuth": ("azimuth", [10.0, 12.0]),
+              "elevation": ("azimuth", [0.5, 0.55]),
+              "time": ("azimuth", times),
+              "range": ("range", [250.0, 500.0, 750.0])}
+    sweep = xr.Dataset({"DBZH": (("azimuth", "range"), [[10.0, 11.0, np.nan], [12.0, 13.0, 14.0]], {"units": "dBZ"}),
+                        "VRADH": (("azimuth", "range"), [[1.0, -2.0, 3.0], [4.0, 5.0, 6.0]], {"units": "m/s"}),
+                        "sweep_fixed_angle": xr.DataArray(0.5)}, coords=coords)
+    root = xr.Dataset(coords={"latitude": 30.679, "longitude": -88.239, "altitude": 70.0})
+    return xr.DataTree.from_dict({"/": root, "/sweep_0": sweep})
+
+
+def test_decoder_preserves_native_gate_values():
+    volume = decode_tree(sample_tree(), "KMOB", "fixture")
+    d = volume.descriptor
+    assert d.radar_id == "KMOB" and d.sweeps[0].ray_count == 2
+    assert d.sweeps[0].moments[Moment.REF].gate_spacing_m == 250
+    arr = volume.arrays[("sweep_0", Moment.REF)]
+    assert arr.dtype == np.dtype("float32") and arr.shape == (2, 3)
+    assert float(arr[0, 1]) == 11.0 and np.isnan(arr[0, 2])
+    assert d.sweeps[0].time_utc[0] == datetime(2024, 6, 4, 21, 0, tzinfo=timezone.utc)
+
+
+def test_binary_array_bytes_and_api():
+    volume = decode_tree(sample_tree(), "KMOB", "fixture")
+    CACHE.clear()
+    CACHE["fixture"] = volume
+    with TestClient(app) as client:
+        response = client.get("/volumes/fixture/sweeps/sweep_0/moments/VEL")
+        assert response.status_code == 200
+        assert response.headers["x-array-shape"] == "2,3"
+        arr = np.frombuffer(response.content, dtype="<f4").reshape(2, 3)
+        assert arr[0, 1] == -2
+        assert client.get("/volumes/missing").status_code == 404
+    CACHE.clear()
+
+
+def test_bad_range_geometry_rejected():
+    da = xr.DataArray([[1, 2, 3]], dims=("azimuth", "range"), coords={"range": [250, 500, 900]})
+    with pytest.raises(ValueError, match="nonuniform"):
+        _range_geometry(da)
+
+
+def test_invalid_radar_rejected():
+    with pytest.raises(ValueError, match="four-character"):
+        decode_tree(sample_tree(), "MOB", "fixture")
+
+
+def test_missing_gate_is_not_converted_to_zero():
+    result = decode_tree(sample_tree(), "KMOB", "fixture")
+    raw = result.arrays[("sweep_0", Moment.REF)].tobytes()
+    assert np.isnan(np.frombuffer(raw, dtype="<f4")[2])
