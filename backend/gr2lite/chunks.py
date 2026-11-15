@@ -85,6 +85,8 @@ class IncrementalChunkPoller(LiveArchivePoller):
         self.store.last_check=now
         stamp,keys=latest_listing(self.s3)
         self.last_chunk_count=len(keys)
+        self.store.chunk_count=len(keys)
+        self.store.chunk_volume=stamp
         if len(keys)>MAX_CHUNKS:
             raise RuntimeError("Chunk safety limit exceeded")
         keep=set(keys)
