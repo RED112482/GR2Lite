@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .decoder import DecodedVolume, decode_archive
 from .models import Moment
 from .live import RadarStore, LiveArchivePoller
+from .chunks import IncrementalChunkPoller
 
 app = FastAPI(title="GR2Lite Archive API", version="0.1.0")
 # Public cloud hosting needs explicit origin allowlisting; no wildcard credentials.
@@ -29,14 +30,14 @@ LIVE_STORE = RadarStore(limit=int(os.environ.get("GR2LITE_HISTORY_VOLUMES", "2")
 LIVE_POLLER: LiveArchivePoller | None = None
 
 def _all_volumes() -> list[DecodedVolume]:
-    return LIVE_STORE.list() if LIVE_STORE.mode == "live" else list(CACHE.values())
+    return LIVE_STORE.list() if LIVE_STORE.mode in ("live","chunks") else list(CACHE.values())
 
 def _get_volume(volume_id: str) -> DecodedVolume | None:
-    return LIVE_STORE.get(volume_id) if LIVE_STORE.mode == "live" else CACHE.get(volume_id)
+    return LIVE_STORE.get(volume_id) if LIVE_STORE.mode in ("live","chunks") else CACHE.get(volume_id)
 
 @app.get("/radar/status")
 def radar_status():
-    if LIVE_STORE.mode == "live":
+    if LIVE_STORE.mode in ("live", "chunks"):
         return LIVE_STORE.status()
     volumes = list(CACHE.values())
     return {
@@ -159,7 +160,14 @@ archive = os.environ.get("GR2LITE_ARCHIVE_PATH")
 @app.on_event("startup")
 def start_ingestion():
     global LIVE_POLLER
-    if os.environ.get("GR2LITE_MODE", "archive").lower() == "live":
+    mode=os.environ.get("GR2LITE_MODE","archive").lower()
+    if mode == "chunks":
+        LIVE_STORE.mode="chunks"
+        LIVE_POLLER=IncrementalChunkPoller(
+            LIVE_STORE,interval=float(os.environ.get("GR2LITE_CHUNK_POLL_SECONDS","12"))
+        )
+        LIVE_POLLER.start()
+    elif mode == "live":
         LIVE_STORE.mode = "live"
         LIVE_POLLER = LiveArchivePoller(
             LIVE_STORE, interval=float(os.environ.get("GR2LITE_POLL_SECONDS", "45"))
