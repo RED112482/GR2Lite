@@ -34,3 +34,8 @@ button:hover{filter:brightness(1.12)}button.secondary{width:100%;background:#354
 .overlay-toggles{margin-top:13px;display:grid;gap:8px}
 .overlay-toggles label{display:flex;align-items:center;gap:9px;margin:0;font-size:11px}
 .overlay-toggles input{accent-color:#68baee}
+
+.follow-live{display:flex;align-items:center;gap:8px;margin-top:10px}
+.follow-live input{accent-color:#52c994}
+#history{font-variant-numeric:tabular-nums}
+#feedInfo{color:#a7c2d9;overflow-wrap:anywhere}
