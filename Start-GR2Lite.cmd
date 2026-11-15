@@ -30,9 +30,9 @@ if not exist "frontend\node_modules" (
   if errorlevel 1 (popd & pause & exit /b 1)
   popd
 )
-echo Starting experimental near-live KMOB Level-II viewer...
-echo NOTE: This uses completed AWS volumes, not real-time sweep chunks.
-start "GR2Lite Backend" cmd /k "cd /d ""%~dp0backend"" && set GR2LITE_MODE=live&& .venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000"
+echo Starting experimental incremental KMOB Level-II viewer...
+echo NOTE: This uses real-time Level-II chunks, with completed-volume fallback.
+start "GR2Lite Backend" cmd /k "cd /d ""%~dp0backend"" && set GR2LITE_MODE=chunks&& .venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000"
 start "GR2Lite Frontend" cmd /k "cd /d ""%~dp0frontend"" && npm.cmd run dev"
 start "" "http://127.0.0.1:5173/GR2Lite/"
 echo Two windows are running. Close them to stop GR2Lite.
