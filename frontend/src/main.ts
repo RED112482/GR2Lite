@@ -31,12 +31,11 @@ const map=new maplibregl.Map({
     ],tileSize:256,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'}},
     layers:[{id:'base',type:'raster',source:'carto'}]
   },
-  center:[-88.239,30.679],zoom:7,pitch:0,maxPitch:0,dragRotate:false,
-  attributionControl:true
+  center:[-88.239,30.679],zoom:7,pitch:0,maxPitch:0,dragRotate:false
 });
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
 const radar=new PolarRadarLayer();
-map.once('load',()=>{try{map.addLayer(radar as maplibregl.CustomLayerInterface);}catch(e){showError(e);}});
+map.once('load',()=>{try{map.addLayer(radar);}catch(e){showError(e);}});
 map.on('error',e=>console.warn('Map tile or renderer warning',e.error));
 let volume:VolumeDescriptor|undefined;
 let moment:Moment='REF';
