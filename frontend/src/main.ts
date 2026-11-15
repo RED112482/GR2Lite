@@ -131,7 +131,7 @@ async function loadFrame(){
     el<HTMLDivElement>('radarMeta').textContent=
       'Site: '+v.radar_id+'\nVST: '+vst+'\nProduct: '+latestTime+
       '\nTilt: '+s.fixed_angle_deg.toFixed(2)+'°'+
-      '\nMoment: '+moment+'\nMax: '+(Number.isFinite(maxValue)?maxValue.toFixed(1):'—')+' '+pal.unit+
+      '\nVCP: '+(v.vcp??'—')+'\nMoment: '+moment+'\nMax: '+(Number.isFinite(maxValue)?maxValue.toFixed(1):'—')+' '+pal.unit+
       '\nAz: '+(peak>=0?s.azimuth_deg[maxRay].toFixed(1):'—')+'°'+
       '\nRange: '+(peak>=0?rangeKm.toFixed(1):'—')+' km';
     el<HTMLSpanElement>('angleLabel').textContent=s.fixed_angle_deg.toFixed(2)+'° / CUT '+s.index;
