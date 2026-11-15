@@ -1,141 +1,58 @@
-# GR2Lite — Milestone 1 (experimental)
+# GR2Lite — Experimental Level-II Radar Viewer
 
-A foundation for a **browser-based**, high-performance native NEXRAD Level-II
-radar interrogation application. Milestone 1 includes a Python archive adapter,
-versioned JSON/binary radar data contract, AWS KMOB archive retrieval, unit tests,
-and a minimal archive API. It **does not yet include** a radar viewer, real-time
-streaming, or an operationally verified Level-II decode of a real KMOB volume.
+**Current: near-live KMOB completed-volume refresh + archived playback.**
+The WebGL2 radar viewer shows native polar gates with state, county and NWS CWA
+reference overlays. This is an experimental research tool, **not approved for
+operational warning decisions**.
 
-## Python development
+## Windows quick start
 
-Requires **Python 3.12+**. Windows users with Anaconda must create and **activate**
-a Python 3.12 virtual environment, not use the Anaconda `(base)` environment.
+Install **Python 3.12** and **Node.js LTS** once. Download the repository and
+double-click **[Start-GR2Lite.cmd](Start-GR2Lite.cmd)**. It sets up isolated
+dependencies, launches the local radar backend and frontend, and opens the
+browser viewer. Internet access is needed to query the public AWS Level-II feed.
 
-### Windows PowerShell (recommended)
+The backend can also be run in historical archive mode using
+`GR2LITE_ARCHIVE_PATH`. See
+**[Live mode and manual launch instructions](docs/live-mode.md)**.
 
-First install Python 3.12 from https://www.python.org/downloads/ if `py -3.12`
-is not available. From the `backend` folder, run:
+## What works
 
-```powershell
-py -0p
-# Remove the previously created .venv ONLY if it uses the wrong Python version:
-if (Test-Path .venv) { Remove-Item -Recurse -Force .venv }
-py -3.12 -m venv .venv
-.\\.venv\\Scripts\\python.exe --version
-.\\.venv\\Scripts\\python.exe -m pip install --upgrade pip
-.\\.venv\\Scripts\\python.exe -m pip install -e ".[test]"
-.\\.venv\\Scripts\\python.exe -m pytest -q
-```
+- Native Level-II REF/VEL/SW/CC/ZDR/PHI rendering via WebGL2
+- Native-value gate sampling and elevation/cut selection
+- MapLibre dark basemap without an API key; official NOAA boundary overlays
+- Automatically checking the latest *complete* KMOB volume on AWS
+- Bounded volume history, Follow Latest toggle, UTC timestamps and stale state
+- Preservation of map zoom/pan, radar moment and closest elevation during updates
+- Backend API status `/radar/status` and `/volumes`; live errors are visible
+- GitHub Actions test/build workflows
 
-Using the venv's `python.exe` explicitly avoids Anaconda's `(base)` interpreter
-even if the shell does not activate the venv. You should see `Python 3.12.x`.
-The package installation must succeed before testing. Running bare `pytest`
-can accidentally invoke the global Anaconda executable.
+## Next technical milestones
 
-Optional activation:
-```powershell
-.\\.venv\\Scripts\\Activate.ps1
-python --version
-python -m pytest -q
-```
+1. **Incremental chunk ingestion** (low-latency S/I/E fragments and completed
+   sweep publication) rather than waiting for completed archive volumes
+2. More memory-efficient gate caching and fast history playback
+3. Accurate long-range gate geodesy and independent radar validation
+4. Native SRM, dealiasing controls, QTor/tortosity overlays
+5. Authenticated cloud backend with persistent low-latency connection and
+   availability monitoring
 
-If PowerShell prevents activation, use the explicit `.venv\\Scripts\\python.exe`
-commands above; you do not need to weaken execution policy.
+The current AWS feed is the public `unidata-nexrad-level2` **completed-volume**
+bucket. The `unidata-nexrad-level2-chunks` bucket supports earlier sweep
+updates, but that mechanism is **not integrated yet**. Do not interpret the
+`NEAR-LIVE` label as a guarantee of true per-sweep real-time latency.
 
-### Linux / macOS
+Source information: https://registry.opendata.aws/noaa-nexrad/ and
+https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/nexrad_read_chunks.html
 
-```bash
-cd backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[test]'
-python -m pytest -q
-```
+## Repository layout
 
-## Find and download an archived KMOB volume
+- `backend/gr2lite/` — decoding, AWS polling, archive/history API
+- `frontend/src/` — map, WebGL2 radar layer, controls and gate sampling
+- `docs/` — radar data contract, validation and live-mode instructions
+- `.github/workflows/` — automated unit tests and frontend build
 
-```bash
-gr2lite list-kmob 2024-06-04 --limit 10
-# Copy one resulting exact S3 key, then:
-gr2lite download-kmob 2024/06/04/KMOB/KMOB20240604_210000_V06 --out ./data
-# The key above is a format example, not a verified existing file.
-gr2lite decode ./data/ACTUAL_FILENAME --json ./data/volume.json
-```
-
-## Run archive API
-
-```bash
-export GR2LITE_ARCHIVE_PATH=/absolute/path/to/KMOB_FILE
-uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000
-```
-
-In a cloud container, mount the archive and set `GR2LITE_ARCHIVE_PATH` as an
-environment variable. The supplied Dockerfile is a backend packaging starting
-point, **not a deployed service**. Public deployment requires authentication,
-object-store integration, resource limits and safe startup/error handling.
-
-## Key architecture rules
-
-1. Preserve native radial/gate geometry, not PNGs as authoritative data.
-2. Preserve original decoded moments and ray times.
-3. Reject unsupported geometry rather than silently interpolate.
-4. Use `float32-le` arrays for MVP transport.
-5. Validate archived KMOB data against independent readers before Milestone 2.
-
-See [radar contract](docs/radar-contract.md) and [validation plan](docs/validation.md).
-
-## Sources
-
-NEXRAD public archive: https://registry.opendata.aws/noaa-nexrad/
-Reader: https://docs.openradarscience.org/projects/xradar/
-
-Independent experimental project, not an official NWS warning system.
-
-## First browser viewer — Milestone 2 prototype
-
-The initial TypeScript + MapLibre + WebGL2 radar viewer is under `frontend/`.
-It supports cached native gate textures, fast pan/zoom, REF/VEL and other
-available moments, all elevation cuts, click-to-sample, two palettes, opacity
-control and a dark street basemap. **This is an experimental MVP**, not yet
-a validated geographic display. Geographic placement uses a local planar
-Mercator approximation that becomes less accurate away from the radar; gate
-range displayed in the browser is approximate. No real-time ingestion or
-history playback is included yet.
-
-### PowerShell: start archive backend
-
-From the `backend` directory, after downloading a KMOB volume:
-
-```powershell
-$env:GR2LITE_ARCHIVE_PATH = (Resolve-Path ".\\data\\KMOB20240604_000506_V06").Path
-.\\.venv\\Scripts\\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000
-```
-
-Keep this terminal open. Backend metadata should be available at
-http://127.0.0.1:8000/volumes.
-
-### PowerShell: start frontend in another terminal
-
-Node.js 20+ is recommended. From the repository `frontend` folder:
-
-```powershell
-npm install
-npm run dev
-```
-
-Open http://127.0.0.1:5173/GR2Lite/ (or the URL Vite prints).
-The frontend defaults to `/api`, which Vite proxies to the local backend.
-Select REF or VEL, switch cuts, and click a gate for its measurement.
-
-### Cloud deployment later
-
-The browser frontend can be hosted statically. The Python backend requires a
-persistent container/VM process and accessible archive storage; GitHub Pages
-**cannot** run it. Once a cloud backend is deployed, enter its HTTPS base URL
-in the frontend's **Backend URL** input. Set `GR2LITE_CORS_ORIGINS` to the
-trusted browser origin(s). Avoid Internet-exposing this prototype until
-authentication, resource limits and safe preloading are implemented.
-
-The raster basemap uses CARTO/OSM third-party tiles, subject to their
-attribution and usage terms. No weather warnings should be based on this
-prototype.
+Python API is local by default; the frontend is served by Vite locally.
+The repository contains a Dockerfile to prepare for cloud deployment but
+**does not yet deploy a cloud service**. GitHub Pages alone cannot host the
+running Python radar backend.
