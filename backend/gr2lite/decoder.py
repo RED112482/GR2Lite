@@ -110,6 +110,9 @@ def decode_tree(tree, radar_id: str, volume_id: str) -> DecodedVolume:
             raise ValueError(f"Root missing {coord}; cannot locate radar")
     lat, lon = _scalar(root["latitude"].values), _scalar(root["longitude"].values)
     alt = _scalar(root["altitude"].values) if "altitude" in root else None
+    # Missing site altitude is allowed by the contract, but NaN is not JSON-safe.
+    if alt is not None and not np.isfinite(alt):
+        alt = None
     ids = sorted((k.lstrip("/") for k in tree.groups if re.fullmatch(r"/sweep_\d+", k)),
                  key=lambda k: int(k.split("_")[-1]))
     if not ids:
