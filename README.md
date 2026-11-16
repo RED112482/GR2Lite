@@ -313,3 +313,24 @@ frames), and GPU redraws are throttled to avoid excessive work (approximately
 sampled periodically instead of synchronizing every frame. The actual visual
 frame rate and workstation-level overlay accuracy should still be tested
 against a live Level-II scan.
+
+## GPU boundary overlays synchronized with radar (November 16)
+
+In 2/4/16 panel mode, state, county, and NWS CWA outlines now render
+**in the same WebGL2 frame and geographic transform** as each radar tile.
+Previous versions redrew boundary pixels on separate Canvas2D elements
+after map movement, causing overlays to trail radar and block UI interaction.
+
+Projected NOAA geometry is uploaded once as GPU line buffers, then drawn
+with the same viewport, Mercator center and scale as the radar gates in
+each active panel. There is no per-drag CPU coastline rasterization or
+90-ms delayed outline refresh on the GPU path.
+
+The sidebar checkboxes for **State boundaries**, **County boundaries**, and
+**NWS CWA boundaries** apply immediately in both the main MapLibre display
+and the 2/4/16 panel renderer. Each layer can be hidden independently.
+The CPU fallback still respects the toggles. Disabling a layer skips its
+WebGL draw calls rather than drawing it invisibly.
+
+If WebGL2 is unavailable, the slower Canvas2D fallback remains in place.
+Actual movement responsiveness should still be checked on the intended GPU.
