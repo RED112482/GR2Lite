@@ -138,6 +138,11 @@ class IncrementalChunkPoller(LiveArchivePoller):
         if candidate==self.last_snapshot:
             return False
         decode_started=perf_counter()
+        prior_snapshot=None
+        for candidate_volume in self.store.list():
+            if candidate_volume.descriptor.volume_id.startswith(f"KMOB{stamp}_CH"):
+                prior_snapshot=self.store.get(candidate_volume.descriptor.volume_id)
+                break
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message=r"Dropped .* incomplete sweep")
             tree=xd.open_datatree(
@@ -152,7 +157,7 @@ class IncrementalChunkPoller(LiveArchivePoller):
             if not any(g.startswith("/sweep_") for g in tree.groups):
                 return False
             snapshot_id=f"KMOB{stamp}_CH{len(keys):03d}"
-            volume=decode_tree(tree,"KMOB",snapshot_id)
+            volume=decode_tree(tree,"KMOB",snapshot_id,reuse=prior_snapshot)
             volume.descriptor.volume_complete = parse_chunk(keys[-1])[2] == "E"
         finally:
             tree.close()
@@ -182,6 +187,8 @@ class IncrementalChunkPoller(LiveArchivePoller):
             "new_chunks":new_chunk_count,
             "download_bytes":downloaded_bytes,
             "sweeps":len(volume.descriptor.sweeps),
+            "reused_sweeps":getattr(volume,"reused_sweep_count",0),
+            "newly_decoded_sweeps":len(volume.descriptor.sweeps)-getattr(volume,"reused_sweep_count",0),
             "measured_at_utc":datetime.now(timezone.utc).isoformat(),
         }
         self.store.feed_source="chunks"
