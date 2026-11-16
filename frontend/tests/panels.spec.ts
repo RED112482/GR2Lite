@@ -374,3 +374,47 @@ test('dragging in GPU multi-panel mode pans the map before releasing the mouse',
   await expect(page.locator('#panelGrid')).toBeVisible();
   expect(centerBefore).not.toBeNull();
 });
+
+
+test('all three boundary toggles control WebGL outlines without CPU map lag',async({page})=>{
+  await page.addInitScript(()=>{
+    (window as any).__gr2OutlineDraws=0;
+    const original=WebGL2RenderingContext.prototype.drawArrays;
+    WebGL2RenderingContext.prototype.drawArrays=function(mode,first,count){
+      const program=this.getParameter(this.CURRENT_PROGRAM) as WebGLProgram|null;
+      if(mode===this.LINES&&program&&this.getUniformLocation(program,'u_line_color'))
+        (window as any).__gr2OutlineDraws++;
+      return original.call(this,mode,first,count);
+    };
+  });
+  await mockRadar(page);
+  await page.route('**/api/boundaries/**',route=>{
+    const line={type:'Feature',properties:{},geometry:{type:'LineString',
+      coordinates:[[-88.35,30.68],[-88.15,30.68],[-88.12,30.8]]}};
+    return route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({type:'FeatureCollection',features:[line]})});
+  });
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#headerLayouts button[data-panels="4"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(4);
+  const isGpu=await page.locator('#panelGrid').getAttribute('data-renderer');
+  if(isGpu!=='gpu')return;
+  await expect.poll(()=>page.evaluate(()=>(window as any).__gr2OutlineDraws as number),
+    {timeout:15000}).toBeGreaterThan(0);
+  await page.locator('#overlayStates').uncheck();
+  await page.locator('#overlayCounties').uncheck();
+  await page.locator('#overlayCwa').uncheck();
+  await page.evaluate(()=>(window as any).__gr2OutlineDraws=0);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(()=>(window as any).__gr2OutlineDraws)).toBe(0);
+  await page.locator('#overlayStates').check();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__gr2OutlineDraws as number),
+    {timeout:10000}).toBeGreaterThan(0);
+  await page.locator('#headerLayouts button[data-panels="16"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
+  await page.locator('#overlayStates').uncheck();
+  await page.evaluate(()=>(window as any).__gr2OutlineDraws=0);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(()=>(window as any).__gr2OutlineDraws)).toBe(0);
+});
