@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 import logging
 import re
 import warnings
+from time import perf_counter
 from .live import LiveArchivePoller, RadarStore
 from .decoder import decode_tree
 from .aws_archive import BUCKET as ARCHIVE_BUCKET
@@ -89,6 +90,7 @@ class IncrementalChunkPoller(LiveArchivePoller):
         import xradar as xd
         now=datetime.now(timezone.utc)
         self.store.last_check=now
+        started=perf_counter()
         # Fast path: poll only the current cycle prefix, not the whole bucket.
         # Periodically re-discover or immediately after a completed volume.
         rediscover=(self.active_prefix is None or self.active_completed or
@@ -106,6 +108,10 @@ class IncrementalChunkPoller(LiveArchivePoller):
                 self.discovery_polls=0
         self.active_completed=parse_chunk(keys[-1])[2]=='E'
         self.discovery_polls+=1
+        discovery_ms=round((perf_counter()-started)*1000,1)
+        new_chunk_count=0
+        downloaded_bytes=0
+        download_start=perf_counter()
         self.last_chunk_count=len(keys)
         self.store.chunk_count=len(keys)
         self.store.chunk_volume=stamp
@@ -122,12 +128,16 @@ class IncrementalChunkPoller(LiveArchivePoller):
                 if len(body)>MAX_BYTES:
                     raise ValueError("Oversized S3 chunk")
                 self.bytes_by_key[key]=body
+                new_chunk_count+=1
+                downloaded_bytes+=len(body)
                 self.last_chunk_at=now
         if sum(len(v) for v in self.bytes_by_key.values())>MAX_BYTES:
             raise ValueError("Chunk cache exceeds memory budget")
+        download_ms=round((perf_counter()-download_start)*1000,1)
         candidate=(stamp,len(keys))
         if candidate==self.last_snapshot:
             return False
+        decode_started=perf_counter()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message=r"Dropped .* incomplete sweep")
             tree=xd.open_datatree(
@@ -154,9 +164,25 @@ class IncrementalChunkPoller(LiveArchivePoller):
             if len(volume.descriptor.sweeps)<=len(old[0].descriptor.sweeps):
                 self.last_snapshot=candidate
                 return False
+        decode_ms=round((perf_counter()-decode_started)*1000,1)
+        publish_started=perf_counter()
         published=self.store.publish(volume)
         self.last_snapshot=candidate
         if not published:return False
+        publish_ms=round((perf_counter()-publish_started)*1000,1)
+        self.store.latency_metrics={
+            "source":"chunks",
+            "volume_id":snapshot_id,
+            "discovery_ms":discovery_ms,
+            "download_ms":download_ms,
+            "decode_ms":decode_ms,
+            "publish_ms":publish_ms,
+            "total_ms":round((perf_counter()-started)*1000,1),
+            "new_chunks":new_chunk_count,
+            "download_bytes":downloaded_bytes,
+            "sweeps":len(volume.descriptor.sweeps),
+            "measured_at_utc":datetime.now(timezone.utc).isoformat(),
+        }
         self.store.feed_source="chunks"
         LOG.info("Published %s with %s complete cuts",snapshot_id,len(volume.descriptor.sweeps))
         return True
