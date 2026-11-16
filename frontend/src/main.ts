@@ -90,7 +90,7 @@ async function cachedFrame(v:VolumeDescriptor,s:SweepDescriptor,m:Moment):Promis
   const existing=frameCache.get(key);
   if(existing){
     frameCache.delete(key);frameCache.set(key,existing);
-    return {...existing,volume:v,sweep:s,descriptor:s.moments[m]!};
+    return {...existing,volume:v,sweep:s,descriptor:s.moments[m]!,cacheHit:true};
   }
   let promise=pendingFrames.get(key);
   if(!promise){
@@ -110,7 +110,7 @@ async function cachedFrame(v:VolumeDescriptor,s:SweepDescriptor,m:Moment):Promis
       frameCache.delete(oldest);
       cachedBytes-=evicted.values.byteLength;
     }
-    return {...result,volume:v,sweep:s,descriptor:s.moments[m]!};
+    return {...result,volume:v,sweep:s,descriptor:s.moments[m]!,cacheHit:false};
   }finally{pendingFrames.delete(key);}
 }
 async function descriptorFor(id:string):Promise<VolumeDescriptor>{
@@ -206,7 +206,7 @@ async function loadFrame(){
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
-    perfText('perfTransfer',perfValue(frame.transferMs)+(frame.transferBytes?' · '+(frame.transferBytes/1048576).toFixed(1)+' MiB':''));
+    perfText('perfTransfer',frame.cacheHit?'CACHED':perfValue(frame.transferMs)+(frame.transferBytes?' · '+(frame.transferBytes/1048576).toFixed(1)+' MiB':''));
     perfText('perfGpu',perfValue(radar.lastUploadMs)+(radar.lastGpuCacheHit?' · cached':''));
     perfText('perfFrame',perfValue(performance.now()-loadStarted));
     panelManager.update(v,m,s);
