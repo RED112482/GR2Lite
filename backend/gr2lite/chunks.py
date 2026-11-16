@@ -46,7 +46,7 @@ def contiguous_prefix(keys: list[str]) -> list[str]:
             break
     return ordered
 
-def latest_listing(s3) -> tuple[str, list[str]]:
+def latest_listing(s3, prefix: str = 'KMOB/') -> tuple[str, list[str]]:
     """Choose the newest volume by UTC stamp, not rotating volume number.
 
     Listing all KMOB objects via S3 pagination is more efficient than making
@@ -54,7 +54,7 @@ def latest_listing(s3) -> tuple[str, list[str]]:
     """
     groups=defaultdict(list)
     paginator=s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=BUCKET,Prefix="KMOB/"):
+    for page in paginator.paginate(Bucket=BUCKET,Prefix=prefix):
         for entry in page.get("Contents",[]):
             key=entry["Key"]
             parsed=parse_chunk(key)
@@ -76,6 +76,9 @@ class IncrementalChunkPoller(LiveArchivePoller):
         self.last_snapshot:tuple[str,int]|None=None
         self.last_chunk_at:datetime|None=None
         self.last_chunk_count=0
+        self.active_prefix: str|None=None
+        self.discovery_polls=0
+        self.active_completed=False
         self.fallback=LiveArchivePoller(store,interval=45)
         self.since_archive=0
 
@@ -83,7 +86,23 @@ class IncrementalChunkPoller(LiveArchivePoller):
         import xradar as xd
         now=datetime.now(timezone.utc)
         self.store.last_check=now
-        stamp,keys=latest_listing(self.s3)
+        # Fast path: poll only the current cycle prefix, not the whole bucket.
+        # Periodically re-discover or immediately after a completed volume.
+        rediscover=(self.active_prefix is None or self.active_completed or
+                    self.discovery_polls>=5)
+        if rediscover:
+            stamp,keys=latest_listing(self.s3)
+            self.active_prefix=keys[0].rsplit('/',1)[0]+'/'
+            self.discovery_polls=0
+        else:
+            try:
+                stamp,keys=latest_listing(self.s3,self.active_prefix)
+            except RuntimeError:
+                stamp,keys=latest_listing(self.s3)
+                self.active_prefix=keys[0].rsplit('/',1)[0]+'/'
+                self.discovery_polls=0
+        self.active_completed=parse_chunk(keys[-1])[2]=='E'
+        self.discovery_polls+=1
         self.last_chunk_count=len(keys)
         self.store.chunk_count=len(keys)
         self.store.chunk_volume=stamp
