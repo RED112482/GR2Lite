@@ -1,3 +1,4 @@
+import type {TiltIndex} from './tiltIndex';
 import type {SweepDescriptor,VolumeDescriptor} from './radar';
 
 export interface ScanStripState {
@@ -97,7 +98,9 @@ export function scanStripState(v:VolumeDescriptor,selectedId?:string):ScanStripS
 export function renderScanStrip(
   v:VolumeDescriptor|undefined,
   selectedId:string|undefined,
-  onSelect:(angle:number)=>void
+  onSelect:(angle:number)=>void,
+  index?:TiltIndex,
+  selectedVolumeId?:string
 ) {
   const list=document.getElementById('scanTilts');
   const vcp=document.getElementById('stripVcp');
@@ -111,6 +114,7 @@ export function renderScanStrip(
     avset.textContent='AVSET —';progress.textContent='WAITING FOR SCANS';latest.textContent='LATEST —';return;
   }
   const state=scanStripState(v,selectedId);
+  const indexed=Boolean(index?.volume_id===v.volume_id&&index.tilts.length);
   const vcpNumber=state.vcp.match(/\b(?:vcp\s*)?(\d{2,3})\b/i);
   vcp.textContent='VCP '+(vcpNumber?vcpNumber[1]:state.vcp);
   vcp.title=v.vcp?'VCP reported by decoder metadata':'VCP not supplied by decoder';
@@ -118,17 +122,27 @@ export function renderScanStrip(
   mode.title=state.supplementalTitle;
   avset.textContent='AVSET '+state.avset;
   avset.title=state.avsetTitle;
-  progress.textContent=state.progress;
+  progress.textContent=state.progress+(indexed&&index!.previous_volume_id?' · PRIOR LEVELS SHOWN':'');
   latest.textContent=state.latestLabel;
   const fragment=document.createDocumentFragment();
-  for(const item of state.angles) {
+  const displayed=indexed?index!.tilts.map(t=>({
+    angle:t.angle,count:t.count_current,newest:t.newest,
+    selected:Object.values(t.moments).some(src=>src?.volume_id===(selectedVolumeId??v.volume_id)&&src?.sweep_id===selectedId),
+    time:t.time_utc?new Date(t.time_utc).toISOString().slice(11,19)+'Z':'—',
+    prior:!t.current
+  })):state.angles.map(t=>({...t,prior:false}));
+  for(const item of displayed) {
     const b=document.createElement('button');
     b.type='button';
-    b.className='scan-tilt'+(item.newest?' newest':'')+(item.selected?' selected':'');
+    b.className='scan-tilt'+(item.newest?' newest':'')+(item.selected?' selected':'')+(item.prior?' prior':'');
+    b.dataset.source=item.prior?'previous':'current';
     b.textContent=item.angle.toFixed(1)+'°';
-    b.title=item.angle.toFixed(2)+'° • '+item.count+' cut(s) • latest '+item.time+
+    b.title=item.angle.toFixed(2)+'° • '+(item.prior?'PREVIOUS COMPLETE VOLUME':'CURRENT VOLUME')+' • '+item.count+' current-volume cut(s) • latest '+item.time+
       (item.newest?' • NEWEST RECEIVED CUT':'');
     b.setAttribute('aria-label',b.title);
+    if(item.prior){
+      const tag=document.createElement('span');tag.className='scan-prior-tag';tag.textContent='PREV';b.append(tag);
+    }
     if(item.count>1) {
       const count=document.createElement('span');
       count.className='scan-repeat';
