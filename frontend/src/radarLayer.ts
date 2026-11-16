@@ -81,6 +81,7 @@ export class PolarRadarLayer {
   private map?:maplibregl.Map;
   private gl?:WebGL2RenderingContext;
   private program?:WebGLProgram;
+  private uniforms=new Map<string,WebGLUniformLocation|null>();
   private vao?:WebGLVertexArrayObject;
   private vertexBuffer?:WebGLBuffer;
   private gateTexture?:WebGLTexture;
@@ -113,6 +114,12 @@ export class PolarRadarLayer {
     gl.deleteShader(vs);gl.deleteShader(fs);
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)??'Shader linking failed');
     this.program=program;
+    this.uniforms.clear();
+    for(const name of ['u_matrix','u_radar_merc','u_scale','u_first',
+      'u_step','u_gates_count','u_min','u_max','u_opacity',
+      'u_value_factor','u_legacy_velocity_nd','u_gates','u_lookup','u_palette']){
+      this.uniforms.set(name,gl.getUniformLocation(program,name));
+    }
     this.vao=gl.createVertexArray()??undefined;
     this.vertexBuffer=gl.createBuffer()??undefined;
     if(!this.vao||!this.vertexBuffer)throw new Error('Unable to create GPU vertex buffer');
@@ -240,7 +247,7 @@ export class PolarRadarLayer {
     if(!this.visible||!this.frame||!this.program||!this.vao)return;
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
-    const loc=(name:string)=>gl.getUniformLocation(this.program!,name);
+    const loc=(name:string)=>this.uniforms.get(name)??null;
     // MapLibre's documented Mercator projection matrix takes world [0,1] coordinates.
     // The world-space modelViewProjectionMatrix is not the appropriate input here.
     gl.uniformMatrix4fv(loc('u_matrix'),false,options.defaultProjectionData.mainMatrix);
@@ -304,6 +311,7 @@ export class PolarRadarLayer {
     if(this.vertexBuffer)gl.deleteBuffer(this.vertexBuffer);
     if(this.vao)gl.deleteVertexArray(this.vao);
     if(this.program)gl.deleteProgram(this.program);
+    this.uniforms.clear();
     this.gl=undefined;
     this.lastDataKey='';
   }
