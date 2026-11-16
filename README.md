@@ -54,7 +54,7 @@ sweeps become available, the backend publishes a new immutable snapshot.
 Partial sweeps do not replace valid displayed radar. The legacy completed-
 volume ingest path remains a fallback.
 
-- Default poll interval: 12 seconds. No latency guarantee.
+- Default poll interval: 6 seconds. No latency guarantee.
 - Source indicators: `CHUNKS` (incremental) versus `FALLBACK` (archive).
 - UTC acquisition timestamps, stale/delayed status, and latest completed
   sweep count visible at `/radar/status`.
