@@ -1,9 +1,10 @@
 """Archive-only API. No untrusted filesystem paths are accepted over HTTP."""
 from pathlib import Path
+from gzip import compress as gzip_compress
 from time import monotonic
 import httpx
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import TypeAdapter
 from .models import VolumeDescriptor
@@ -148,13 +149,18 @@ def volumes():
 
 
 @app.get("/volumes/{volume_id}")
-def volume(volume_id: str):
-    # Metadata lookup must NOT mmap dozens of radar arrays just to change time.
+def volume(volume_id: str, request: Request):
+    # Full metadata carries thousands of per-ray azimuths and timestamps.
+    # Compress only JSON, not float32 gate binary, to reduce browser startup
+    # and history-loop metadata latency without adding CPU cost to gate reads.
     for item in _all_volumes():
         if item.descriptor.volume_id == volume_id:
-            return Response(item.descriptor.model_dump_json(),
-                            media_type="application/json",
-                            headers={"Cache-Control":"no-store"})
+            payload=item.descriptor.model_dump_json().encode("utf-8")
+            headers={"Cache-Control":"no-store","Vary":"Accept-Encoding"}
+            if "gzip" in request.headers.get("accept-encoding","").lower() and len(payload)>1024:
+                payload=gzip_compress(payload,compresslevel=1,mtime=0)
+                headers["Content-Encoding"]="gzip"
+            return Response(payload,media_type="application/json",headers=headers)
     raise HTTPException(404, "Volume not loaded")
 
 
