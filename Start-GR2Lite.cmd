@@ -18,11 +18,16 @@ if not exist "backend\.venv\Scripts\python.exe" (
   py -3.12 -m venv "backend\.venv"
   if errorlevel 1 (pause & exit /b 1)
 )
-echo Installing backend dependencies...
-pushd "backend"
-".venv\Scripts\python.exe" -m pip install -e .
-if errorlevel 1 (popd & pause & exit /b 1)
-popd
+if not exist "backend\.venv\.gr2lite-setup" (
+  echo Installing backend dependencies for the first time...
+  pushd "backend"
+  ".venv\Scripts\python.exe" -m pip install -e .
+  if errorlevel 1 (popd & pause & exit /b 1)
+  popd
+  echo ready>"backend\.venv\.gr2lite-setup"
+) else (
+  echo Backend environment already prepared.
+)
 if not exist "frontend\node_modules" (
   echo Installing browser dependencies...
   pushd "frontend"
