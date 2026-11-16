@@ -38,3 +38,14 @@ def test_poll_noop_when_key_unchanged(monkeypatch):
     monkeypatch.setattr("gr2lite.live.latest_kmob_key",lambda *_:"2026/11/15/KMOB/KMOB20261115_000100_V06")
     poller.last_key="2026/11/15/KMOB/KMOB20261115_000100_V06"
     assert poller.poll_once() is False
+
+def test_status_and_history_nested_lock_not_stuck():
+    import threading
+    store=RadarStore(limit=2)
+    result=[]
+    t=threading.Thread(target=lambda:result.append(store.status()),daemon=True)
+    t.start()
+    t.join(timeout=1)
+    assert not t.is_alive(), "Radar status deadlocked while reading history"
+    assert result[0]["state"] == "empty"
+    assert result[0]["volume_count"] == 0
