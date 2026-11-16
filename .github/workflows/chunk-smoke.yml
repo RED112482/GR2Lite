@@ -37,6 +37,10 @@ jobs:
           assert store.status()["volume_count"] >= (1 if outcome else 0)
           if outcome:
               assert store.list()[0].descriptor.sweeps
+              metadata=store.list()[0].descriptor
+              print('VCP:',metadata.vcp,'Dynamic strategy:',metadata.dynamic_scan_type,
+                    'AVSET enabled:',metadata.avset_enabled,
+                    'Volume complete:',metadata.volume_complete)
               from gr2lite.models import Moment
               import numpy as np
               vel_count=0
