@@ -33,6 +33,8 @@ jobs:
           outcome=poller.poll_once()
           print("new completed sweeps published:",outcome)
           print("status:",store.status())
+          assert store.status()["state"] in ("ready","delayed","stale","empty")
+          assert store.status()["volume_count"] >= (1 if outcome else 0)
           if outcome:
               assert store.list()[0].descriptor.sweeps
               print("PASS: incremental chunk stream decoded at least one complete cut")
