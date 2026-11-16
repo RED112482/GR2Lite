@@ -31,6 +31,7 @@
           <button id="nextTime" title="Next time (Right Arrow)">▶</button>
           <button id="jumpLive" title="Resume newest radar">LIVE</button>
         </div>
+        <div class="playback-rate"><label for="playbackSpeed">Loop speed</label><select id="playbackSpeed"><option value="600">1.7 fps</option><option value="300" selected>3.3 fps</option><option value="150">6.7 fps</option></select></div>
         <input id="timeSlider" aria-label="Radar time" type="range" min="0" max="0" value="0" step="1"/>
         <div class="history-meta"><span id="historyCoverage">Building last-hour history…</span><span id="historyPosition">—</span></div>
         <label class="follow-live"><input id="followLive" type="checkbox" checked/> Follow latest volume</label>
