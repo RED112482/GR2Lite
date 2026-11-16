@@ -55,7 +55,9 @@ let historyCoverage=0;
 let panelManager:PanelManager;
 let syncing=false;
 let boundariesLoaded=false;
-panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame);
+panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),
+  s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,
+  tile=>{moment=tile.moment;sweep=tile.sweep;renderTiltOptions();void loadFrame();});
 document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
   button.onclick=()=>panelManager.setCount(Number(button.dataset.panels) as 1|2|4|16);
 });
@@ -102,6 +104,10 @@ function setMoments(){
     const b=document.createElement('button');b.textContent=m;b.disabled=!supported.includes(m);
     b.className=moment===m?'active':'';
     b.onclick=async()=>{
+      if(panelManager.count!==1){
+        panelManager.setProduct(m);
+        return;
+      }
       moment=m;
       const candidate=volume?.sweeps.find(s=>s.id===sweep?.id&&s.moments[m])
         ??volume?.sweeps.find(s=>s.moments[m]);
@@ -146,6 +152,7 @@ async function loadFrame(){
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
+    panelManager.update(v,m,s);
     const signature=cacheKey(v,s,m);
     let stats=scanStats.get(signature);
     if(!stats){
@@ -365,7 +372,12 @@ el<HTMLButtonElement>('playTime').onclick=()=>{
 };
 
 el<HTMLSelectElement>('tilt').onchange=async e=>{
-  sweep=volume?.sweeps.find(s=>s.id===(e.target as HTMLSelectElement).value);
+  const requested=volume?.sweeps.find(s=>s.id===(e.target as HTMLSelectElement).value);
+  if(panelManager.count!==1){
+    if(requested)panelManager.setElevation(requested.fixed_angle_deg);
+    return;
+  }
+  sweep=requested;
   await loadFrame();
 };
 el<HTMLSelectElement>('palette').onchange=()=>{
@@ -396,6 +408,10 @@ window.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp'||e.key==='ArrowDown'){
     e.preventDefault();
     if(panelManager.count===16)return;
+    if(panelManager.count!==1){
+      panelManager.stepElevation(e.key==='ArrowUp'?1:-1);
+      return;
+    }
     // Strictly move to a greater/lower *elevation angle*: skip split-cut duplicates.
     const cuts=[...(volume?.sweeps.filter(s=>s.moments[moment])??[])]
       .sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg);
@@ -410,6 +426,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Delete'&&volume){
     e.preventDefault();
     const next:Moment=moment==='REF'?'VEL':'REF';
+    if(panelManager.count!==1){panelManager.setProduct(next);return;}
     if(currentMomentOptions().includes(next)){
       moment=next;
       sweep=volume.sweeps.find(s=>s.id===sweep?.id&&s.moments[next])??volume.sweeps.find(s=>s.moments[next]);
