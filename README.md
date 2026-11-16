@@ -108,8 +108,9 @@ Chunk decoding: <https://docs.openradarscience.org/projects/xradar/en/stable/not
 ## Performance and correctness limitations
 
 The current code is an experimental iteration toward GR2-like responsiveness:
-2/4/16 panels are lightweight Canvas previews and not yet sixteen independent
-GPU views. Complete sweeps still pass through xradar before becoming visible,
+2/4/16 panels share a dedicated WebGL2 GPU renderer (one context) rather than
+creating sixteen independent GPU contexts. Canvas2D remains only for boundary
+strokes and as a fallback on unsupported or failing graphics hardware. Complete sweeps still pass through xradar before becoming visible,
 so ingest is incremental **by complete sweep**, not decoded radial-by-radial.
 Initial history backfill can take several minutes and may put noticeable load
 on older computers. The local history is limited by available disk space and
@@ -242,3 +243,25 @@ duration. Note that xradar still parses the incoming chunk sequence to build
 the updated DataTree; this optimization targets the application-level gate
 array extraction and conversion, not the underlying radial parsing. It is
 not yet true partial-radial decoding or a measured guarantee of latency gains.
+
+## Shared GPU renderer for 2 / 4 / 16 panels
+
+The multi-panel viewer now uses a **single WebGL2 context** for radar values,
+with a scissored viewport per tile. Each panel samples its native float32
+polar gates and azimuth lookup directly in its fragment shader. An LRU cache
+limits GPU gate/lookup/colorbar textures to about **120 MiB**. Velocity
+missing-data and range-folded Level-II special codes remain masked, and the
+existing REF/VEL display palettes are preserved. State/county/CWA outlines
+still use lightweight transparent Canvas2D strokes above the GPU display.
+
+Panel selection, independent moment/elevation changes, click-to-interrogate,
+double-click-to-maximize, rolling elevation status and one-hour time looping
+remain unchanged. Panning/zooming requests a shader redraw rather than
+re-rasterizing every radar pixel in JavaScript.
+
+The sidebar panel-selection text indicates **GPU** or **CPU fallback**. If
+WebGL2 initialization, context or drawing fails, the existing Canvas2D
+rendering path is used instead. This should be treated as an experimental
+performance implementation until visually verified with live KMOB sweeps
+on the target workstation; build and browser UI tests alone do not establish
+correct pixel-level output or guaranteed frame rates.
