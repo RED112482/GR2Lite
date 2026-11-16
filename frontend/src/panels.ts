@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import {PanelGpu} from './panelGpu';
+import type {BoundaryKind,ProjectedBoundaries} from './panelGpu';
 import type {PanelDraw} from './panelGpu';
 import type {TiltIndex,TiltSource} from './tiltIndex';
 import {getBoundary} from './boundaryData';
@@ -15,7 +16,7 @@ type TileCell={
   bar:HTMLDivElement;gradient:HTMLDivElement;high:HTMLSpanElement;low:HTMLSpanElement;
   tile:Tile;frame?:RadarFrame;key:string;
 };
-type Segments={color:string;lines:number[][][]}[];
+type Segments={kind?:BoundaryKind;color:string;lines:number[][][]}[];
 function uniqueAngles(vol:VolumeDescriptor):SweepDescriptor[]{
   const sorted=[...vol.sweeps].sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg||a.index-b.index);
   const out:SweepDescriptor[]=[];
@@ -207,6 +208,7 @@ export class PanelManager {
   private fastOutlines:Segments=[];
   private fastLightOutlines:Segments=[];
   private redrawOutlinesTimer=0;
+  private overlayVisibility:Record<BoundaryKind,boolean>={states:true,counties:true,cwa:true};
   private generation=0;
   private timer=0;
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
@@ -217,10 +219,23 @@ export class PanelManager {
               private onLayoutChange:(count:Count)=>void){
     this.gpu=new PanelGpu(this.grid,this.map);
     this.gpu.onFailure=()=>this.schedule();
+    const syncOverlayToggles=()=>{
+      this.overlayVisibility={
+        states:document.querySelector<HTMLInputElement>('#overlayStates')?.checked??true,
+        counties:document.querySelector<HTMLInputElement>('#overlayCounties')?.checked??true,
+        cwa:document.querySelector<HTMLInputElement>('#overlayCwa')?.checked??true,
+      };
+      this.gpu.setBoundaryVisibility(this.overlayVisibility);
+      if(!this.gpu.ready)this.schedule();
+    };
+    window.addEventListener('gr2lite-overlay-change',syncOverlayToggles);
+    syncOverlayToggles();
     map.on('move',()=>this.gpu.schedule());
     map.on('moveend',()=>{
-      window.clearTimeout(this.redrawOutlinesTimer);
-      this.redrawOutlinesTimer=window.setTimeout(()=>this.refreshViewport(),90);
+      if(!this.gpu.ready){
+        window.clearTimeout(this.redrawOutlinesTimer);
+        this.redrawOutlinesTimer=window.setTimeout(()=>this.refreshViewport(),90);
+      }
     });
     this.grid.addEventListener('wheel',e=>{
       e.preventDefault();
@@ -271,10 +286,7 @@ export class PanelManager {
   private refreshViewport(){
     if(this.count===1)return;
     this.gpu.schedule();
-    if(this.gpu.ready){
-      const lines=this.count===16?this.fastLightOutlines:this.fastOutlines;
-      for(const item of this.rendered)drawOutlines(item.canvas,this.map,lines);
-    }else this.schedule();
+    if(!this.gpu.ready)this.schedule();
   }
   async loadBoundaries(){
     if(this.boundariesRequested)return;
@@ -296,17 +308,19 @@ export class PanelManager {
             lines.push(indexes.map(i=>rawLine[i]));
           }
         }
-        this.segments.push({color:color[kind],lines});
+        this.segments.push({kind:kind as BoundaryKind,color:color[kind],lines});
       }catch(e){console.warn('Panel boundary fetch failed:',kind,e);}
     }
     this.lightOutlines=this.segments.filter(s=>s.color!=='#697e91');
     // Project once on ingest, not on every drag/map event.
     this.fastOutlines=this.segments.map(shape=>({
+      kind:shape.kind,
       color:shape.color,
       lines:shape.lines.map(line=>line.map(pair=>projection(pair[0],pair[1])))
     }));
     this.fastLightOutlines=this.fastOutlines.filter(s=>s.color!=='#697e91');
     outlinesCache.clear();
+    this.gpu.setBoundaries(this.fastOutlines as ProjectedBoundaries);
     this.refreshViewport();
   }
   setCount(count:Count){
@@ -543,8 +557,7 @@ export class PanelManager {
     },undefined);
     const needed:TileCell[]=[];
     const gpuJobs:PanelDraw[]=[];
-    const outlines=this.count===16?this.lightOutlines:this.segments;
-    const gpuOutlines=this.count===16?this.fastLightOutlines:this.fastOutlines;
+    const outlines=this.segments.filter(s=>s.kind?this.overlayVisibility[s.kind]:true);
     for(let i=0;i<tiles.length;i++){
       const tile=tiles[i],cell=this.cells[i];
       cell.tile=tile;
@@ -564,7 +577,7 @@ export class PanelManager {
       // actual radar source hasn't changed. No full-grid teardown.
       if(cell.key===key&&cell.frame){
         if(!this.gpu.ready)drawFrame(cell.canvas,cell.frame,this.map,outlines);
-        else {drawOutlines(cell.canvas,this.map,gpuOutlines);gpuJobs.push({canvas:cell.canvas,frame:cell.frame});}
+        else {gpuJobs.push({canvas:cell.canvas,frame:cell.frame});}
         continue;
       }
       cell.key=key;cell.frame=undefined;
@@ -599,7 +612,6 @@ export class PanelManager {
           cell.caption.textContent=tile.moment+' • '+tile.label+
             (last?' • '+new Date(last).toISOString().slice(11,19)+'Z':'');
           if(this.gpu.ready){
-            drawOutlines(cell.canvas,this.map,outlines);
             gpuJobs.push({canvas:cell.canvas,frame});
             this.rendered=[...gpuJobs];
             this.gpu.setTiles(this.rendered);
