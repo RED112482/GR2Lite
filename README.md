@@ -23,13 +23,16 @@ The frontend API address should be `/api`. The backend status page is
 ## Multi-panel operation
 
 - **1 panel:** full interactive WebGL2 map.
-- **2 panels:** REF and VEL at the closest available cut angle.
-- **4 panels:** REF/VEL at the selected elevation and next elevation.
+- **2 panels:** REF and VEL at the closest available cut angle. Each tile has its own colorbar.
+- **4 panels:** REF/VEL at the selected elevation and next elevation, with separately labeled colorbars.
 - **16 panels:** all **unique** elevation angles from lowest to highest;
   if more than 16, use the page arrows. These panels are optimized Canvas2D
   previews of the native gates, with map outlines and a shared camera.
 - Up/down arrows in **1/2/4-panel** modes move only to a genuinely
   higher/lower angle (no wrapping from highest to lowest).
+- **Left/right arrows:** step backward/forward through historical volume times.
+  The time slider and Play button loop through the locally cached history;
+  LIVE returns to the newest available radar data.
 - Wheel and drag in multi-panel mode adjust the shared geographic viewport.
   Click a tile to interrogate the nearest native gate; double-click to open
   that tilt in the single WebGL view.
@@ -49,8 +52,18 @@ volume ingest path remains a fallback.
 - Source indicators: `CHUNKS` (incremental) versus `FALLBACK` (archive).
 - UTC acquisition timestamps, stale/delayed status, and latest completed
   sweep count visible at `/radar/status`.
-- Retains the newest two snapshots by default; preserves pan/zoom and
-  closest elevation when following live data.
+- Retains the newest two snapshots in **RAM** by default and up to **60
+  minutes on disk** (default cap 4 GiB), with historical archive backfill
+  beginning after initial live startup. The coverage readout reports what
+  is actually available; coverage builds progressively and is not guaranteed
+  until backfill succeeds.
+- Retains pan/zoom, moment and closest elevation while following new chunks.
+- The frontend fetches a compact time index and downloads detailed metadata
+  only when a volume is selected; previously received complete sweeps share
+  their gate buffers across new chunk snapshots.
+- GPU renderer skips uploading unchanged complete sweeps, and uses
+  `texSubImage2D` when the new scan's texture dimensions are unchanged.
+  These are **sweep-level** updates, not per-radial GPU patching yet.
 - Pulling from S3 requires working Internet access.
 - **This is an experimental first implementation**; automated unit tests
   cannot substitute for a live ingest run and comparison with GR2Analyst.
@@ -59,7 +72,9 @@ volume ingest path remains a fallback.
 
 - `backend/gr2lite/chunks.py`: S3 chunk discovery, sequential download,
   complete-sweep assembly and archive fallback
-- `backend/gr2lite/live.py`: bounded historical snapshots and feed status
+- `backend/gr2lite/live.py`: bounded hot snapshots and feed status
+- `backend/gr2lite/history.py`: disk-backed radar history and memory mapped arrays
+- `backend/gr2lite/backfill.py`: low-priority archive recovery of recent history
 - `backend/gr2lite/decoder.py`: xradar adapter
 - `frontend/src/radarLayer.ts`: native-gate WebGL2 renderer
 - `frontend/src/panels.ts`: synchronized multi-panel previews
@@ -73,3 +88,21 @@ Pages hosts static resources but cannot run this Python backend.
 
 Data: <https://registry.opendata.aws/noaa-nexrad/>
 Chunk decoding: <https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/nexrad_read_chunks.html>
+
+## Performance and correctness limitations
+
+The current code is an experimental iteration toward GR2-like responsiveness:
+2/4/16 panels are lightweight Canvas previews and not yet sixteen independent
+GPU views. Complete sweeps still pass through xradar before becoming visible,
+so ingest is incremental **by complete sweep**, not decoded radial-by-radial.
+Initial history backfill can take several minutes and may put noticeable load
+on older computers. The local history is limited by available disk space and
+is not guaranteed to cover 60 minutes during an outage. Velocity is displayed
+in **knots** when the source supplies m/s; source arrays remain unmodified.
+
+If the Windows launcher has already prepared the Python environment, it skips
+re-running pip on each subsequent launch. The selected radar is currently KMOB.
+
+Validation: check `/radar/status` for `feed_source`, `age_seconds`,
+`history_minutes_available` and `history_error`, and test the panel and time
+controls in a browser. The project is not an approved NWS warning-decision tool.
