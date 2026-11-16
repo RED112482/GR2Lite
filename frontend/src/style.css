@@ -191,3 +191,14 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
 .panel-grid[data-panels="16"] .panel-caption{font-size:9px;padding:2px 4px;
   max-width:calc(100% - 9px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(prefers-reduced-motion:no-preference){.panel-tile.latest-sweep::after{animation:scan-glow 3s ease-in-out infinite}}
+
+/* Full-bleed, strictly undistorted radar plots. The shader/CPU/overlay now
+ * all use equal projected meters PER CSS PIXEL, so rectangular slots are
+ * correctly cropped, not stretched. */
+.panel-tile .panel-plot,
+.panel-grid[data-renderer="gpu"] .panel-tile .panel-plot{
+  position:absolute;inset:0;left:0;top:0;transform:none;
+  width:100%;height:100%;aspect-ratio:auto;overflow:hidden;
+  background:transparent;z-index:1
+}
+.panel-tile .panel-plot canvas{width:100%;height:100%}
