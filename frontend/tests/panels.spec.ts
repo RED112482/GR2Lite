@@ -110,3 +110,24 @@ test('scan strip reports received tilts, latest glow, VCP and honest strategy st
   await expect(page.locator('#angleLabel')).toContainText('0.50');
   await expect(page.locator('#scanTilts .scan-tilt.selected')).toContainText('0.5');
 });
+
+test('authoritative Message 5 SAILS and Message 2 AVSET ON appear in strip',async({page})=>{
+  await mockRadar(page);
+  await page.route('**/api/volumes/KMOB_TEST_VOLUME',route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({...descriptor,dynamic_scan_type:'SAILS x 2',avset_enabled:true})
+  }));
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await expect(page.locator('#stripStrategy')).toContainText('SAILS');
+  await expect(page.locator('#stripAvset')).toHaveText('AVSET ON');
+});
+test('scan progress stays live while navigating older radar time',async({page})=>{
+  await mockRadar(page,true);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#prevTime').click();
+  await expect(page.locator('#volumeLabel')).toContainText('KMOB_TEST_VOLUME_OLDER');
+  await expect(page.locator('#stripLatest')).toContainText('1.5°');
+  await expect(page.locator('#scanTilts .scan-tilt.newest')).toContainText('1.5');
+});
