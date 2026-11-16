@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import {PanelGpu} from './panelGpu';
 import type {PanelDraw} from './panelGpu';
+import type {TiltIndex,TiltSource} from './tiltIndex';
 import {getBoundary} from './boundaryData';
 
 import {isNoData} from './radar';
@@ -8,7 +9,7 @@ import type {Moment, RadarFrame, SweepDescriptor, VolumeDescriptor} from './rada
 import {getPalette,palettePixels,valueFactor,cssGradient} from './palettes';
 
 type Count=1|2|4|16;
-type Tile={sweep:SweepDescriptor;moment:Moment;label:string};
+type Tile={sweep:SweepDescriptor;moment:Moment;label:string;source?:TiltSource;newest?:boolean;volume?:VolumeDescriptor};
 type Segments={color:string;lines:number[][][]}[];
 function uniqueAngles(vol:VolumeDescriptor):SweepDescriptor[]{
   const sorted=[...vol.sweeps].sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg||a.index-b.index);
@@ -155,6 +156,9 @@ function extractLines(geometry:{type:string;coordinates:any}):number[][][]{
 export class PanelManager {
   count:Count=1;
   private page=0;
+  private rollingIndex?:TiltIndex;
+  private sourceCache=new Map<string,{volume:VolumeDescriptor;sweep:SweepDescriptor}>();
+  private indexSignature='';
   private selectedIndex=0;
   private overrides=new Map<number,{moment:Moment;angle:number}>();
   private layoutAngle:number|undefined;
@@ -169,6 +173,7 @@ export class PanelManager {
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
               private api:()=>string,private selectCut:(s:SweepDescriptor)=>void,
               private loadFrame:(volume:VolumeDescriptor,sweep:SweepDescriptor,moment:Moment)=>Promise<RadarFrame>,
+              private getDescriptor:(id:string)=>Promise<VolumeDescriptor>,
               private onSelected:(tile:Tile)=>void,
               private onLayoutChange:(count:Count)=>void){
     this.gpu=new PanelGpu(this.grid,this.map);
@@ -189,6 +194,18 @@ export class PanelManager {
       pointer=null;
     });
   }
+  setRollingIndex(index:TiltIndex){
+    const signature=[index.volume_id,index.previous_volume_id,
+      ...index.tilts.map(t=>[t.angle,t.newest,
+        ...Object.values(t.moments).map(s=>s?.volume_id+':'+s?.sweep_id)].join('/'))].join('|');
+    this.rollingIndex=index;
+    if(signature!==this.indexSignature){
+      this.indexSignature=signature;
+      this.sourceCache.clear();
+      if(this.count===16)this.schedule();
+    }
+  }
+  private sourceKey(source:TiltSource){return source.volume_id+'|'+source.sweep_id;}
   private refreshViewport(){
     if(this.count===1)return;
     this.gpu.schedule();
