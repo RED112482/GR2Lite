@@ -247,3 +247,93 @@ test('GPU tiles actually paint sampled native reflectivity pixels',async({page})
       {timeout:15000}).toBeGreaterThan(0);
   }
 });
+
+
+test('multi-panel layout always draws square radar plots inside equal grid cells',async({page})=>{
+  await mockRadar(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  for(const count of [2,4,16]){
+    await page.locator('#headerLayouts button[data-panels="'+count+'"]').click();
+    await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(count===16?2:count);
+    const geometry=await page.locator('#panelGrid .panel-tile').evaluateAll(tiles=>tiles.map(tile=>{
+      const bounds=tile.getBoundingClientRect();
+      const plot=tile.querySelector('.panel-plot')!.getBoundingClientRect();
+      return {width:bounds.width,height:bounds.height,plotWidth:plot.width,
+        plotHeight:plot.height,inside:plot.left>=bounds.left-1&&plot.top>=bounds.top-1&&
+          plot.right<=bounds.right+1&&plot.bottom<=bounds.bottom+1};
+    }));
+    for(const g of geometry){
+      expect(Math.abs(g.plotWidth-g.plotHeight)).toBeLessThan(2);
+      expect(g.inside).toBe(true);
+      expect(g.plotWidth).toBeGreaterThan(0);
+    }
+    expect(Math.max(...geometry.map(g=>g.width))-Math.min(...geometry.map(g=>g.width)))
+      .toBeLessThan(2);
+    expect(Math.max(...geometry.map(g=>g.height))-Math.min(...geometry.map(g=>g.height)))
+      .toBeLessThan(2);
+  }
+});
+
+test('changing one panel reuses other tile DOM and previously loaded radar gate buffers',async({page})=>{
+  await mockRadar(page);
+  const gateRequests:string[]=[];
+  page.on('request',req=>{if(req.url().includes('/moments/'))gateRequests.push(req.url());});
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#headerLayouts button[data-panels="2"]').click();
+  await expect(page.locator('#panelGrid .panel-caption').nth(1)).toContainText('VEL',{timeout:15000});
+  await page.locator('#panelGrid .panel-tile').first().evaluate(node=>{
+    (node as HTMLElement).dataset.identity='persistent-tile';
+  });
+  await page.locator('#panelGrid .panel-tile').nth(1).click();
+  const priorRequests=gateRequests.length;
+  await page.locator('#moments button').getByText('REF',{exact:true}).click();
+  await expect(page.locator('#panelGrid .panel-caption').nth(1)).toContainText('REF');
+  await expect(page.locator('#panelGrid .panel-tile').first()).toHaveAttribute('data-identity','persistent-tile');
+  expect(gateRequests.length).toBe(priorRequests);
+});
+
+test('16 panels include prior-volume upper elevations and ring newest current tilt',async({page})=>{
+  await mockRadar(page,true);
+  const angles=[0.2,0.5,0.9,1.3,1.8,2.4,3.1,4.0,5.1,6.4,8.0,10.0,12.5];
+  const sourceSweeps=angles.map((angle,i)=>({
+    ...sweeps[0],id:'sweep_'+i,index:i,fixed_angle_deg:angle,
+    elevation_deg:Array(90).fill(angle),
+    time_utc:Array(90).fill(new Date(Date.parse(baseTime)+i*10000).toISOString())
+  }));
+  const current={...descriptor,volume_id:'KMOB_TEST_VOLUME',volume_complete:false,
+    sweeps:sourceSweeps.slice(0,3)};
+  const preceding={...descriptor,volume_id:'KMOB_TEST_VOLUME_OLDER',volume_complete:true,
+    sweeps:sourceSweeps};
+  await page.route('**/api/volumes/KMOB_TEST_VOLUME',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify(current)
+  }));
+  await page.route('**/api/volumes/KMOB_TEST_VOLUME_OLDER',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify(preceding)
+  }));
+  await page.route('**/api/radar/tilts',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify({
+      volume_id:current.volume_id,previous_volume_id:preceding.volume_id,
+      newest:{sweep_id:'sweep_2',angle:0.9,time_utc:baseTime},
+      tilts:angles.map((angle,i)=>({
+        angle,current:i<3,newest:i===2,count_current:i<3?1:0,
+        time_utc:baseTime,moments:{REF:{
+          volume_id:i<3?current.volume_id:preceding.volume_id,
+          sweep_id:'sweep_'+i,time_utc:baseTime,current:i<3
+        }}
+      }))
+    })
+  }));
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await expect(page.locator('#scanTilts .scan-tilt')).toHaveCount(13);
+  await page.locator('#headerLayouts button[data-panels="16"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(13);
+  await expect(page.locator('#panelGrid .panel-tile.latest-sweep')).toHaveCount(1);
+  await expect(page.locator('#panelGrid .panel-tile.latest-sweep .panel-caption')).toContainText('0.9');
+  await expect(page.locator('#panelGrid .panel-caption').last()).toContainText('12.5');
+  const geometry=await page.locator('#panelGrid .panel-plot').evaluateAll(plots=>
+    plots.map(el=>{const r=el.getBoundingClientRect();return [r.width,r.height];}));
+  for(const [w,h] of geometry)expect(Math.abs(w-h)).toBeLessThan(2);
+});
