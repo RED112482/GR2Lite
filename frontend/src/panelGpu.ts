@@ -45,11 +45,10 @@ void main(){
 // radar gates. No second CPU canvas to lag behind when the user drags.
 const LINE_VERT=`#version 300 es
 layout(location=0) in vec2 a_position;
-uniform vec2 u_origin;
 uniform vec2 u_camera;
 uniform vec2 u_span;
 void main(){
- vec2 offset=a_position-(u_camera-u_origin);
+ vec2 offset=a_position-u_camera;
  gl_Position=vec4(2.0*offset.x/u_span.x,-2.0*offset.y/u_span.y,0.0,1.0);
 }`;
 const LINE_FRAG=`#version 300 es
@@ -141,7 +140,7 @@ export class PanelGpu {
    this.lineProgram=lines;
    this.lineVao=gl.createVertexArray();
    this.lineUniforms.clear();
-   for(const name of ['u_origin','u_camera','u_span','u_line_color'])
+   for(const name of ['u_camera','u_span','u_line_color'])
      this.lineUniforms.set(name,gl.getUniformLocation(lines,name));
    this.gl=gl;this.program=p;this.vao=gl.createVertexArray();
    this.failed=false;
@@ -236,8 +235,10 @@ export class PanelGpu {
   gl.useProgram(program);
   gl.bindVertexArray(this.lineVao);
   const u=(s:string)=>this.lineUniforms.get(s)??null;
-  gl.uniform2f(u('u_origin'),this.lineOrigin[0],this.lineOrigin[1]);
-  gl.uniform2f(u('u_camera'),camera.x,camera.y);
+  // Subtract the floating-point origin in JS at double precision before
+  // handing the small local offset to GLSL (important at high radar zoom).
+  gl.uniform2f(u('u_camera'),
+    camera.x-this.lineOrigin[0],camera.y-this.lineOrigin[1]);
   gl.uniform2f(u('u_span'),spanX,spanY);
   for(const line of this.lineData){
     if(!this.visibility[line.kind])continue;
