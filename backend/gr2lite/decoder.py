@@ -173,6 +173,8 @@ def decode_archive(path: str | Path, radar_id: str = "KMOB") -> DecodedVolume:
     tree = xd.io.open_nexradlevel2_datatree(str(p), reindex_angle=False,
                                             mask_and_scale=True, decode_times=True)
     try:
-        return decode_tree(tree, radar_id, p.name)
+        volume = decode_tree(tree, radar_id, p.name)
+        volume.descriptor.volume_complete = True
+        return volume
     finally:
         tree.close()
