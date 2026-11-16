@@ -143,6 +143,7 @@ class IncrementalChunkPoller(LiveArchivePoller):
                 return False
             snapshot_id=f"KMOB{stamp}_CH{len(keys):03d}"
             volume=decode_tree(tree,"KMOB",snapshot_id)
+            volume.descriptor.volume_complete = parse_chunk(keys[-1])[2] == "E"
         finally:
             tree.close()
         if not volume.descriptor.sweeps:
