@@ -192,7 +192,7 @@ def start_ingestion():
     if mode == "chunks":
         LIVE_STORE.mode="chunks"
         LIVE_POLLER=IncrementalChunkPoller(
-            LIVE_STORE,interval=float(os.environ.get("GR2LITE_CHUNK_POLL_SECONDS","12"))
+            LIVE_STORE,interval=float(os.environ.get("GR2LITE_CHUNK_POLL_SECONDS","6"))
         )
         LIVE_POLLER.start()
         if LIVE_STORE.disk and os.environ.get("GR2LITE_BACKFILL","1")=="1":
