@@ -134,3 +134,11 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
 .perf-indicator{font-size:8px;color:#9ac9e3;font-weight:500;margin-left:4px}
 .perf-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;font-size:11px;color:#a9bdcf}
 .perf-grid strong{font-variant-numeric:tabular-nums;color:#e4f4fa;font-weight:600;text-align:right}
+
+/* Older complete-volume upper cuts remain visible until current volume reaches them. */
+.scan-tilt.prior{background:#202936;border-color:#526273;color:#94a4b5;border-style:dashed}
+.scan-tilt.prior.selected{border-color:#91c8f4;color:#d3eafb;box-shadow:inset 0 0 0 1px #74b4e0}
+.scan-prior-tag{position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);
+  background:#384555;border:1px solid #617386;color:#bcd0df;border-radius:3px;
+  padding:0 3px;font-size:7px;letter-spacing:.02em}
+.scan-tilts{padding-bottom:12px}
