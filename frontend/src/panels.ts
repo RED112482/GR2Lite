@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 
+import {isNoData} from './radar';
 import type {Moment, RadarFrame, SweepDescriptor, VolumeDescriptor} from './radar';
 import {getPalette,palettePixels,valueFactor,cssGradient} from './palettes';
 
@@ -64,7 +65,10 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
       const az=(Math.atan2(east,north)*180/Math.PI+360)%360;
       const ray=lookup[Math.floor(az*10)%3600];
       let value=NaN;
-      if(ray>=0&&gate>=0&&gate<gates)value=f.values[ray*gates+gate]*factor;
+      if(ray>=0&&gate>=0&&gate<gates){
+        const raw=f.values[ray*gates+gate];
+        if(!isNoData(f.moment,raw,f.descriptor.units))value=raw*factor;
+      }
       if(Number.isFinite(value)&&!(f.moment==='REF'&&value<pal.min)){
         const index=Math.max(0,Math.min(255,Math.round(255*(value-pal.min)/(pal.max-pal.min))))*4;
         pixels[i]=colors[index];pixels[i+1]=colors[index+1];pixels[i+2]=colors[index+2];
@@ -312,8 +316,10 @@ export class PanelManager {
             const lookup=lookupFor(frame);
             const ray=lookup[Math.floor(az*10)%3600];
             const gate=Math.round((range-frame.descriptor.first_gate_m)/frame.descriptor.gate_spacing_m);
-            const value=ray>=0&&gate>=0&&gate<frame.descriptor.gates
-              ?frame.values[ray*frame.descriptor.gates+gate]*valueFactor(frame.moment,frame.descriptor.units):NaN;
+            const raw=ray>=0&&gate>=0&&gate<frame.descriptor.gates
+              ?frame.values[ray*frame.descriptor.gates+gate]:NaN;
+            const value=isNoData(frame.moment,raw,frame.descriptor.units)
+              ?NaN:raw*valueFactor(frame.moment,frame.descriptor.units);
             const unit=getPalette(frame.moment,'operational').unit;
             const info=document.getElementById('gate');
             if(info)info.textContent=frame.moment+' • '+tile.label+' • '+tile.sweep.id+
