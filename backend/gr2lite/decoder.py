@@ -160,8 +160,17 @@ def decode_tree(tree, radar_id: str, volume_id: str) -> DecodedVolume:
         sweeps.append(desc)
         arrays.update(data)
     vcp = str(root.attrs.get("scan_name", "")) or None
+    # Message 5 supplies dynamic_scan_type (SAILS/MRLE/standard); Message 2
+    # supplies avset_enabled. Missing messages are UNKNOWN, never assumed OFF.
+    strategy_value = root.attrs.get("dynamic_scan_type")
+    dynamic_scan_type = str(strategy_value).strip() if strategy_value is not None else None
+    if dynamic_scan_type == "":
+        dynamic_scan_type = None
+    avset_value = root.attrs.get("avset_enabled")
+    avset_enabled = bool(avset_value) if isinstance(avset_value, (bool, np.bool_)) else None
     return DecodedVolume(
         VolumeDescriptor(volume_id=volume_id, radar_id=radar_id, vcp=vcp,
+                         dynamic_scan_type=dynamic_scan_type, avset_enabled=avset_enabled,
                          radar_lat=lat, radar_lon=lon, radar_alt_m=alt, sweeps=sweeps), arrays)
 
 
