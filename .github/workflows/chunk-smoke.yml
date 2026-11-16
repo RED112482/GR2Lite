@@ -37,6 +37,15 @@ jobs:
           assert store.status()["volume_count"] >= (1 if outcome else 0)
           if outcome:
               assert store.list()[0].descriptor.sweeps
+              from gr2lite.models import Moment
+              import numpy as np
+              vel_count=0
+              for (_,moment),values in store.list()[0].arrays.items():
+                  if moment == Moment.VEL:
+                      vel_count+=1
+                      sentinels=int(np.count_nonzero(np.isclose(values,-64.5,atol=0.00001,rtol=0)))
+                      print("Velocity missing-code sentinel check:",sentinels,"in sweep",vel_count)
+                      assert sentinels==0, "Decoded velocity still contains raw-code-0 fill values"
               print("PASS: incremental chunk stream decoded at least one complete cut")
           else:
               print("INCONCLUSIVE: no complete cut in latest S3 listing")
