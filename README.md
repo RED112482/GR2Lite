@@ -269,10 +269,11 @@ correct pixel-level output or guaranteed frame rates.
 ## Equal-aspect multi-panel layouts and performance
 
 The 2-, 4-, and 16-panel modes now use **equal-sized grid cells** with
-**square, centered geographic radar plots** in each tile. Extra space is
-letterboxed rather than stretching NEXRAD radial geometry. The GPU shader,
-native-gate click sampling, the CPU fallback, and boundary overlays all use
-the same square geographic extent based on the single-panel camera's zoom.
+**full-bleed rectangular radar plots** in each tile. Each panel uses the
+same projected geographic distance **per screen pixel** in both directions,
+so radar pixels fill the available panel without distorting radial geometry.
+The GPU shader, native-gate click sampling, the CPU fallback and reference
+outlines now all use that same MapLibre zoom projection.
 The 16-panel layout uses a 4×4 grid and shows **all rolling available unique
 elevations** from current and preceding complete volumes (paged only above
 16). The most recently acquired elevation has a green ring around its pane;
@@ -291,3 +292,24 @@ These optimizations improve the rendering architecture but do not promise
 the same FPS on every Windows GPU. The browser regression suite checks
 equal geometry, prior-volume upper cuts, the newest ring, and DOM reuse;
 real continuous-radar performance should still be checked locally.
+
+### November 16 — panel pan and geographic reference correction
+
+A follow-up to the 16-panel GPU work eliminated the small, letterboxed
+centered-square plots. 2, 4, and 16 panels now **fill their equal grid cells**;
+the radial data is *not stretched*, because horizontal and vertical Mercator
+scales are identical per physical screen pixel.
+
+State, county and CWA outlines now use the identical geographic transform
+as the radar shader. The previous fixed-vertex-stride simplification could
+create erroneous long straight line segments along complex coastlines;
+the new screen-tolerance Douglas–Peucker simplifier preserves major turns.
+Geographic boundary points are projected once, and their raster is shared
+between panels instead of repeatedly recomputing features during panning.
+
+Pointer dragging is now continuous (pan-by updates coalesced into animation
+frames), and GPU redraws are throttled to avoid excessive work (approximately
+30 fps target with 16 panels, higher in smaller layouts). WebGL errors are
+sampled periodically instead of synchronizing every frame. The actual visual
+frame rate and workstation-level overlay accuracy should still be tested
+against a live Level-II scan.
