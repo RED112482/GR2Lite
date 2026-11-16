@@ -7,6 +7,7 @@ import {getPalette,cssGradient} from './palettes';
 import {installBoundaries} from './overlays';
 import {PanelManager} from './panels';
 import {valueFactor} from './palettes';
+import {renderScanStrip} from './scanStrip';
 
 const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const apiInput=el<HTMLInputElement>('apiRoot');
@@ -64,7 +65,7 @@ let syncing=false;
 let boundariesLoaded=false;
 panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),
   s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,
-  tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();void loadFrame();},
+  tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();updateScanningStrip();void loadFrame();},
   count=>radar.setVisible(count===1));
 document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
   button.onclick=()=>{
@@ -116,6 +117,28 @@ async function descriptorFor(id:string):Promise<VolumeDescriptor>{
   descriptorCache.set(id,v);
   while(descriptorCache.size>5)descriptorCache.delete(descriptorCache.keys().next().value!);
   return v;
+}
+function updateScanningStrip(){
+  const chosen=volume;
+  renderScanStrip(chosen,sweep?.id,(angle)=>{
+    if(!chosen)return;
+    if(panelManager.count!==1){
+      if(panelManager.count===16){
+        panelManager.selectAngle(angle);
+      }else{
+        panelManager.setElevation(angle);
+      }
+      return;
+    }
+    const candidates=chosen.sweeps.filter(s=>s.moments[moment]);
+    const matching=candidates.filter(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
+    if(!matching.length)return;
+    // For a repeated elevation, prefer its latest occurrence.
+    sweep=matching.reduce((best,s)=>Date.parse(s.time_utc[s.time_utc.length-1])>
+      Date.parse(best.time_utc[best.time_utc.length-1])?s:best);
+    renderTiltOptions();
+    void loadFrame();
+  });
 }
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
 function setMoments(){
@@ -174,6 +197,7 @@ async function loadFrame(){
     current=frame;
     radar.setFrame(frame);
     panelManager.update(v,m,s);
+    updateScanningStrip();
     const signature=cacheKey(v,s,m);
     let stats=scanStats.get(signature);
     if(!stats&&isPlaying){stats={count:frame.values.length,high:NaN,peak:-1,echoes:null};}
@@ -263,6 +287,7 @@ async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
     map.jumpTo({center:[selected.radar_lon,selected.radar_lat],zoom:7,bearing:0,pitch:0});
   }
   currentHistory();renderTiltOptions();
+  updateScanningStrip();
   await loadFrame();
 }
 
