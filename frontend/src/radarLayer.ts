@@ -28,6 +28,7 @@ uniform float u_min;
 uniform float u_max;
 uniform float u_opacity;
 uniform float u_value_factor;
+uniform float u_legacy_velocity_nd;
 void main() {
   vec2 offset = (v_merc - u_radar_merc) * u_scale;
   float east = offset.x;
@@ -43,6 +44,7 @@ void main() {
   int ray = int(token + 0.5) - 1;
   float value = texelFetch(u_gates, ivec2(int(g),ray),0).r;
   if (isnan(value) || isinf(value)) discard;
+  if (u_legacy_velocity_nd > 0.5 && (abs(value+64.5)<0.0001 || abs(value+64.0)<0.0001)) discard;
   float fraction = clamp((value*u_value_factor-u_min)/max(u_max-u_min,0.001),0.0,1.0);
   vec4 color = texture(u_palette,vec2(fraction,0.5));
   fragColor = vec4(color.rgb * u_opacity, u_opacity);
@@ -217,6 +219,9 @@ export class PolarRadarLayer {
     gl.uniform1f(loc('u_min'),p.min);gl.uniform1f(loc('u_max'),p.max);
     gl.uniform1f(loc('u_opacity'),this.opacity);
     gl.uniform1f(loc('u_value_factor'),valueFactor(this.frame.moment,this.frame.descriptor.units));
+    const units=this.frame.descriptor.units.toLowerCase();
+    gl.uniform1f(loc('u_legacy_velocity_nd'),
+      this.frame.moment==='VEL'&&(units.includes('m/s')||units.includes('m s-1'))?1:0);
     for(let i=0;i<3;i++){const t=[this.gateTexture,this.lookupTexture,this.paletteTexture][i]!;
       gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);}
     gl.uniform1i(loc('u_gates'),0);gl.uniform1i(loc('u_lookup'),1);gl.uniform1i(loc('u_palette'),2);
@@ -252,6 +257,7 @@ export class PolarRadarLayer {
     if(ray<0||gate<0||gate>=frame.descriptor.gates)return null;
     const value=frame.values[ray*frame.descriptor.gates+gate];
     if(!Number.isFinite(value))return null;
+    if(frame.moment==='VEL' && (Math.abs(value+64.5)<0.0001||Math.abs(value+64.0)<0.0001))return null;
     return {value,rangeM,azimuth,ray,gate};
   }
   onRemove(_:maplibregl.Map,gl:WebGL2RenderingContext){
