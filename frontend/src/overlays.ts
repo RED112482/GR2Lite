@@ -19,6 +19,9 @@ export async function installBoundaries(map:maplibregl.Map,root:string):Promise<
         map.setLayoutProperty(cfg.layer,'visibility',toggle.checked?'visible':'none');
       }
     }
+    // Synchronize the separate multi-panel WebGL2 renderer with the
+    // exact same user toggles that control the MapLibre single-panel map.
+    window.dispatchEvent(new Event('gr2lite-overlay-change'));
   };
   for(const kind of allKinds){
     const c=config[kind];
