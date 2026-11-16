@@ -133,3 +133,30 @@ def test_rda_status_metadata_is_explicit_and_missing_is_unknown():
     missing=decode_tree(sample_tree(),"KMOB","no-rda").descriptor
     assert missing.avset_enabled is None
     assert missing.dynamic_scan_type is None
+
+
+def test_incremental_decoder_reuses_completed_sweep_arrays():
+    first=decode_tree(sample_tree(),"KMOB","KMOB20261115_220000_CH004")
+    same=decode_tree(sample_tree(),"KMOB","KMOB20261115_220000_CH006",reuse=first)
+    assert same.reused_sweep_count==1
+    assert same.arrays[("sweep_0",Moment.REF)] is first.arrays[("sweep_0",Moment.REF)]
+    assert same.arrays[("sweep_0",Moment.VEL)] is first.arrays[("sweep_0",Moment.VEL)]
+    assert same.descriptor.volume_id.endswith("_CH006")
+
+
+def test_incremental_reuse_rejected_on_scan_change():
+    first=decode_tree(sample_tree(),"KMOB","KMOB20261115_220000_CH004")
+    another=decode_tree(sample_tree(),"KMOB","KMOB20261115_221000_CH001",reuse=first)
+    assert another.reused_sweep_count==0
+    assert another.arrays[("sweep_0",Moment.REF)] is not first.arrays[("sweep_0",Moment.REF)]
+
+
+def test_incremental_reuse_rejected_on_ray_or_geometry_change():
+    first=decode_tree(sample_tree(),"KMOB","KMOB20261115_220000_CH004")
+    modified=sample_tree()
+    altered=modified["/sweep_0"].to_dataset()
+    altered=altered.assign_coords(azimuth=[11.0,12.0])
+    modified["sweep_0"]=altered
+    next_volume=decode_tree(modified,"KMOB","KMOB20261115_220000_CH006",reuse=first)
+    assert next_volume.reused_sweep_count==0
+    assert next_volume.descriptor.sweeps[0].azimuth_deg[0]==11.0
