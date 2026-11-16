@@ -248,11 +248,11 @@ export class PanelManager {
       this.page=nextPage;
       this.selectedIndex=found%16;
       this.schedule();
+      const selected=this.active();
+      if(selected)this.onSelected(selected);
     }else{
       this.activate(found%16);
     }
-    const selected=this.active();
-    if(selected)this.onSelected(selected);
     return true;
   }
   setElevation(angle:number):boolean {
