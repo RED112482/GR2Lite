@@ -118,6 +118,23 @@ def health():
     return {"status": "ok", "mode": LIVE_STORE.mode, "contract_version": "0.1.0"}
 
 
+@app.get("/volumes/index")
+def volume_index():
+    """Cheap time navigator index; metadata for selected volumes fetched on demand."""
+    records=[]
+    for v in _all_volumes():
+        sweeps=v.descriptor.sweeps
+        end=max((max(s.time_utc) for s in sweeps if s.time_utc),default=None)
+        records.append({
+            "volume_id":v.descriptor.volume_id,
+            "radar_id":v.descriptor.radar_id,
+            "time_utc":end.isoformat() if end else None,
+            "sweeps":len(sweeps),
+        })
+    return Response(__import__("json").dumps(records), media_type="application/json",
+                    headers={"Cache-Control":"no-store"})
+
+
 @app.get("/volumes")
 def volumes():
     # Pydantic JSON serializes optional non-finite values as null instead of
