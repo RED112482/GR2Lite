@@ -59,7 +59,11 @@ panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.v
   s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,
   tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();void loadFrame();});
 document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
-  button.onclick=()=>panelManager.setCount(Number(button.dataset.panels) as 1|2|4|16);
+  button.onclick=()=>{
+    const count=Number(button.dataset.panels) as 1|2|4|16;
+    radar.setVisible(count===1);
+    panelManager.setCount(count);
+  };
 });
 const frameCache=new Map<string,RadarFrame>();
 const scanStats=new Map<string,{count:number;high:number;peak:number;echoes:number|null}>();
