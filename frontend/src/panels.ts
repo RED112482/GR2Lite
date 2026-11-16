@@ -238,6 +238,23 @@ export class PanelManager {
     if(next)this.onSelected(next);
     return true;
   }
+  selectAngle(angle:number):boolean {
+    if(this.count!==16||!this.current)return false;
+    const options=uniqueAngles(this.current.volume);
+    const found=options.findIndex(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
+    if(found<0)return false;
+    const nextPage=Math.floor(found/16);
+    if(this.page!==nextPage){
+      this.page=nextPage;
+      this.selectedIndex=found%16;
+      this.schedule();
+    }else{
+      this.activate(found%16);
+    }
+    const selected=this.active();
+    if(selected)this.onSelected(selected);
+    return true;
+  }
   setElevation(angle:number):boolean {
     if(this.count===1||this.count===16||!this.current)return false;
     const tile=this.active();
