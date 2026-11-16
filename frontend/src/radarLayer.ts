@@ -98,6 +98,8 @@ export class PolarRadarLayer {
   private gpuBytes=0;
   private readonly maxGpuBytes=96*1024*1024;
   onGpuStatus?: (status: string) => void;
+  lastUploadMs:number|null=null;
+  lastGpuCacheHit=false;
   private firstDrawNotified=false;
   private gpuFailed=false;
   isReady():boolean { return Boolean(this.gl && this.program && this.vao); }
@@ -134,6 +136,8 @@ export class PolarRadarLayer {
   }
 
   setFrame(frame:RadarFrame) {
+    const uploadStart=performance.now();
+    this.lastGpuCacheHit=false;
     // Identical completed sweeps persist through later chunk snapshots.
     const d=frame.descriptor,s=frame.sweep;
     const identity=[frame.volume.radar_id,frame.moment,s.id,
@@ -141,6 +145,8 @@ export class PolarRadarLayer {
       d.rays,d.gates,d.first_gate_m,d.gate_spacing_m].join('|');
     if(identity===this.lastDataKey && this.frame){
       this.frame=frame;
+      this.lastUploadMs=performance.now()-uploadStart;
+      this.lastGpuCacheHit=true;
       this.map?.triggerRepaint();
       return;
     }
@@ -156,6 +162,8 @@ export class PolarRadarLayer {
       this.lookup=previous.lookupData;
       this.uploadGeometry();
       this.uploadPalette();
+      this.lastUploadMs=performance.now()-uploadStart;
+      this.lastGpuCacheHit=true;
       this.map?.triggerRepaint();
       return;
     }
