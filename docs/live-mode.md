@@ -22,7 +22,7 @@ Backend, from `backend/`:
 
 ```powershell
 $env:GR2LITE_MODE = "chunks"
-$env:GR2LITE_CHUNK_POLL_SECONDS = "12"
+$env:GR2LITE_CHUNK_POLL_SECONDS = "6"
 .\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000
 ```
@@ -43,7 +43,7 @@ the retained snapshots (newest first); `/health` checks API health.
   clamped to 1–6), not an unbounded cache.
 - UTC timestamps and an explicit LIVE/DELAYED/STALE feed state prevent the
   mistaken impression that an old volume is current.
-- Chunk polling defaults to 12 seconds (minimum 5); fallback completed-volume checking is approximately every 2 minutes.
+- Chunk polling defaults to 6 seconds (minimum 5); fallback completed-volume checking is approximately every 2 minutes.
 - There is not yet a persistent cloud deployment, validated end-to-end chunk latency,
   authenticated multi-user service, validated gate geodesy, or complete
   end-to-end scan latency benchmark.
