@@ -10,6 +10,11 @@ import {getPalette,palettePixels,valueFactor,cssGradient} from './palettes';
 
 type Count=1|2|4|16;
 type Tile={sweep:SweepDescriptor;moment:Moment;label:string;source?:TiltSource;newest?:boolean;volume?:VolumeDescriptor};
+type TileCell={
+  box:HTMLDivElement;canvas:HTMLCanvasElement;caption:HTMLSpanElement;
+  bar:HTMLDivElement;gradient:HTMLDivElement;high:HTMLSpanElement;low:HTMLSpanElement;
+  tile:Tile;frame?:RadarFrame;key:string;
+};
 type Segments={color:string;lines:number[][][]}[];
 function uniqueAngles(vol:VolumeDescriptor):SweepDescriptor[]{
   const sorted=[...vol.sweeps].sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg||a.index-b.index);
@@ -166,6 +171,8 @@ export class PanelManager {
   private segments:Segments=[];
   private gpu:PanelGpu;
   private rendered:PanelDraw[]=[];
+  private cells:TileCell[]=[];
+  private structure='';
   private boundariesRequested=false;
   private lightOutlines:Segments=[];
   private generation=0;
@@ -393,11 +400,10 @@ export class PanelManager {
 
   async renderCurrent(){
     const generation=++this.generation;
-    this.grid.replaceChildren(this.gpu.canvas);
-    this.rendered=[];
-    this.gpu.clear();
     if(this.count===1||!this.current){
-      this.grid.classList.add('hidden');return;
+      this.grid.classList.add('hidden');
+      this.gpu.clear();
+      return;
     }
     this.grid.classList.remove('hidden');
     this.grid.dataset.panels=String(this.count);
@@ -405,112 +411,159 @@ export class PanelManager {
     const status=document.getElementById('panelSelection');
     if(status)status.textContent=this.selectionLabel();
     const {volume}=this.current;
-    const columns=this.count===2?2:this.count===4?2:4;
-    this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
-    this.grid.style.gridTemplateRows='repeat('+(this.count===2?1:this.count===4?2:4)+',minmax(0,1fr))';
+    const cols=this.count===2?2:this.count===4?2:4;
+    const rows=this.count===2?1:this.count===4?2:4;
+    this.grid.style.gridTemplateColumns='repeat('+cols+',minmax(0,1fr))';
+    this.grid.style.gridTemplateRows='repeat('+rows+',minmax(0,1fr))';
     const tiles=this.tiles();
+    const structure=this.count+'|'+this.page+'|'+tiles.length;
+    const structuralChange=structure!==this.structure ||
+      this.cells.some(c=>!c.box.isConnected);
+    if(structuralChange){
+      this.structure=structure;
+      this.grid.replaceChildren(this.gpu.canvas);
+      this.cells=[];
+      const fragment=document.createDocumentFragment();
+      for(let i=0;i<tiles.length;i++){
+        const tile=tiles[i];
+        const box=document.createElement('div');box.className='panel-tile';
+        const plot=document.createElement('div');plot.className='panel-plot';
+        const canvas=document.createElement('canvas');plot.append(canvas);
+        const caption=document.createElement('span');caption.className='panel-caption';
+        const bar=document.createElement('div');bar.className='mini-colorbar';
+        const high=document.createElement('span'),low=document.createElement('span');
+        const gradient=document.createElement('div');gradient.className='mini-colorbar-gradient';
+        bar.append(high,gradient,low);box.append(plot,caption,bar);
+        const cell:TileCell={box,canvas,caption,bar,gradient,high,low,tile,key:''};
+        const slot=i;
+        box.addEventListener('click',()=>this.activate(slot));
+        box.addEventListener('dblclick',()=>{
+          this.activate(slot);
+          this.setCount(1);
+          this.selectCut(cell.tile.sweep);
+        });
+        canvas.addEventListener('click',event=>{
+          const f=cell.frame;
+          if(!f)return;
+          const rect=canvas.getBoundingClientRect();
+          const xf=(event.clientX-rect.left)/rect.width;
+          const yf=(event.clientY-rect.top)/rect.height;
+          const size=this.map.getContainer().getBoundingClientRect();
+          const span=Math.max(size.width,size.height)/(512*2**this.map.getZoom());
+          const [cx,cy]=projection(this.map.getCenter().lng,this.map.getCenter().lat);
+          const [rx,ry]=projection(f.volume.radar_lon,f.volume.radar_lat);
+          const scale=40075016.686*Math.cos(f.volume.radar_lat*Math.PI/180);
+          const east=(cx+(xf-0.5)*span-rx)*scale;
+          const north=(ry-cy-(yf-0.5)*span)*scale;
+          const range=Math.hypot(east,north);
+          const az=(Math.atan2(east,north)*180/Math.PI+360)%360;
+          const lookup=lookupFor(f);
+          const ray=lookup[Math.floor(az*10)%3600];
+          const gate=Math.round((range-f.descriptor.first_gate_m)/f.descriptor.gate_spacing_m);
+          const raw=ray>=0&&gate>=0&&gate<f.descriptor.gates
+            ?f.values[ray*f.descriptor.gates+gate]:NaN;
+          const value=isNoData(f.moment,raw,f.descriptor.units)?
+            NaN:raw*valueFactor(f.moment,f.descriptor.units);
+          const info=document.getElementById('gate');
+          if(info)info.textContent=f.moment+' • '+cell.tile.label+' • '+f.sweep.id+
+            '\nGate: '+(Number.isFinite(value)?
+              value.toFixed(2)+' '+getPalette(f.moment,'operational').unit:'NO DATA')+
+            '\nAzimuth: '+az.toFixed(2)+'°\nRange: '+(range/1000).toFixed(2)+' km';
+        });
+        this.cells.push(cell);
+        fragment.append(box);
+      }
+      this.grid.append(fragment);
+    }
     const newest=volume.sweeps.reduce<SweepDescriptor|undefined>((best,s)=>{
-      const time=Date.parse(s.time_utc[s.time_utc.length-1]??'');
+      const stamp=Date.parse(s.time_utc[s.time_utc.length-1]??'');
       const prior=Date.parse(best?.time_utc[best.time_utc.length-1]??'');
-      return !best||(Number.isFinite(time)&&time>prior)?s:best;
+      return !best||(Number.isFinite(stamp)&&stamp>prior)?s:best;
     },undefined);
-    const jobs=tiles.map((tile,index)=>{
-      const box=document.createElement('div');box.className='panel-tile';
-      if(index===this.selectedIndex)box.classList.add('active');
-      if(this.count===16&&(tile.newest||(newest&&Math.abs(tile.sweep.fixed_angle_deg-newest.fixed_angle_deg)<0.16&&!this.rollingIndex?.tilts.length)))
-        box.classList.add('latest-sweep');
-      const plot=document.createElement('div');plot.className='panel-plot';
-      const canvas=document.createElement('canvas');plot.append(canvas);
-      const caption=document.createElement('span');caption.className='panel-caption';
-      caption.textContent=tile.moment+' • '+tile.label+' • loading…';
-      const palette=getPalette(tile.moment,'operational');
-      const bar=document.createElement('div');bar.className='mini-colorbar';
-      const high=document.createElement('span');high.textContent=palette.max+' '+palette.unit;
-      const low=document.createElement('span');low.textContent=palette.min+' '+palette.unit;
-      const gradient=document.createElement('div');gradient.className='mini-colorbar-gradient';
-      gradient.style.background=cssGradient(palette).replace('to right','to top');
-      bar.append(high,gradient,low);
-      box.append(plot,caption,bar);this.grid.append(box);
-      box.addEventListener('dblclick',()=>{this.activate(index);this.setCount(1);this.selectCut(tile.sweep);});
-      box.addEventListener('click',()=>this.activate(index));
-      return {tile,canvas,caption};
-    });
-    // Populate all panels immediately, then fetch/render at bounded concurrency.
-    // This avoids synchronous 16-panel rendering freezing map interactions.
+    const needed:TileCell[]=[];
+    const gpuJobs:PanelDraw[]=[];
+    const outlines=this.count===16?this.lightOutlines:this.segments;
+    for(let i=0;i<tiles.length;i++){
+      const tile=tiles[i],cell=this.cells[i];
+      cell.tile=tile;
+      const isNewest=this.count===16 &&
+        (tile.newest||(newest&&!this.rollingIndex?.tilts.length&&
+          Math.abs(tile.sweep.fixed_angle_deg-newest.fixed_angle_deg)<0.16));
+      cell.box.classList.toggle('latest-sweep',Boolean(isNewest));
+      cell.box.classList.toggle('active',i===this.selectedIndex);
+      const pal=getPalette(tile.moment,'operational');
+      cell.high.textContent=pal.max+' '+pal.unit;
+      cell.low.textContent=pal.min+' '+pal.unit;
+      cell.gradient.style.background=cssGradient(pal).replace('to right','to top');
+      const source=tile.source;
+      const key=[source?.volume_id??volume.volume_id,
+        source?.sweep_id??tile.sweep.id,tile.moment,tile.label].join('|');
+      // Keep the same canvas, gate buffer and GPU texture if this pane's
+      // actual radar source hasn't changed. No full-grid teardown.
+      if(cell.key===key&&cell.frame){
+        if(!this.gpu.ready)drawFrame(cell.canvas,cell.frame,this.map,outlines);
+        else {drawOutlines(cell.canvas,this.map,outlines);gpuJobs.push({canvas:cell.canvas,frame:cell.frame});}
+        continue;
+      }
+      cell.key=key;cell.frame=undefined;
+      cell.caption.textContent=tile.moment+' • '+tile.label+' • loading…';
+      needed.push(cell);
+    }
+    this.gpu.setTiles(gpuJobs);
     let next=0;
-    const workers=Array.from({length:Math.min(4,jobs.length)},async()=>{
-      while(next<jobs.length&&this.generation===generation){
-        const {tile,canvas,caption}=jobs[next++];
+    // 6 in-flight tiles while still bounded; matching gate requests are
+    // deduplicated by the shared frontend frame cache.
+    const workers=Array.from({length:Math.min(6,needed.length)},async()=>{
+      while(next<needed.length&&generation===this.generation){
+        const cell=needed[next++],tile=cell.tile;
         try{
-          // All-tilts view can source unscanned upper levels from the
-          // previous complete volume, never from a placeholder low cut.
-          let tileVolume=volume;
-          let tileSweep=tile.sweep;
+          let actualVolume=volume,actualSweep=tile.sweep;
           if(this.count===16&&tile.source){
             const source=tile.source;
             const resolved=this.sourceCache.get(this.sourceKey(source));
-            const descriptor=resolved?.volume??await this.getDescriptor(source.volume_id);
-            const actual=resolved?.sweep??descriptor.sweeps.find(s=>s.id===source.sweep_id);
-            if(!actual)throw Error('Unavailable source sweep '+source.sweep_id);
-            tileVolume=descriptor;tileSweep=actual;tile.sweep=actual;
-            this.sourceCache.set(this.sourceKey(source),{volume:descriptor,sweep:actual});
+            actualVolume=resolved?.volume??await this.getDescriptor(source.volume_id);
+            const actual=resolved?.sweep??
+              actualVolume.sweeps.find(s=>s.id===source.sweep_id);
+            if(!actual)throw Error('Missing sweep '+source.sweep_id);
+            actualSweep=actual;
+            tile.sweep=actual;tile.volume=actualVolume;
+            this.sourceCache.set(this.sourceKey(source),{volume:actualVolume,sweep:actual});
           }
-          const frame=await this.loadFrame(tileVolume,tileSweep,tile.moment);
-          if(this.generation!==generation)return;
-          const boundaryLines=this.count===16?this.lightOutlines:this.segments;
-          this.rendered.push({canvas,frame});
+          const frame=await this.loadFrame(actualVolume,actualSweep,tile.moment);
+          if(generation!==this.generation||!cell.box.isConnected)return;
+          cell.frame=frame;
+          const last=actualSweep.time_utc[actualSweep.time_utc.length-1];
+          cell.caption.textContent=tile.moment+' • '+tile.label+
+            (last?' • '+new Date(last).toISOString().slice(11,19)+'Z':'');
           if(this.gpu.ready){
-            drawOutlines(canvas,this.map,boundaryLines);
-            this.gpu.setTiles([...this.rendered]);
-          }else drawFrame(canvas,frame,this.map,boundaryLines);
-          const last=tile.sweep.time_utc[0];
-          caption.textContent=tile.moment+' • '+tile.label+(last?' • '+new Date(last).toISOString().slice(11,19)+'Z':'');
-          canvas.onclick=(e)=>{
-            const rect=canvas.getBoundingClientRect();
-            const xf=(e.clientX-rect.left)/rect.width, yf=(e.clientY-rect.top)/rect.height;
-            const mapSize=this.map.getContainer().getBoundingClientRect();
-            const world=512*2**this.map.getZoom();
-            const [cx,cy]=projection(this.map.getCenter().lng,this.map.getCenter().lat);
-            const [rx,ry]=projection(frame.volume.radar_lon,frame.volume.radar_lat);
-            const scale=40075016.686*Math.cos(frame.volume.radar_lat*Math.PI/180);
-            const east=(cx+(xf-0.5)*mapSize.width/world-rx)*scale;
-            const north=(ry-cy-(yf-0.5)*mapSize.height/world)*scale;
-            const range=Math.hypot(east,north);
-            const az=(Math.atan2(east,north)*180/Math.PI+360)%360;
-            const lookup=lookupFor(frame);
-            const ray=lookup[Math.floor(az*10)%3600];
-            const gate=Math.round((range-frame.descriptor.first_gate_m)/frame.descriptor.gate_spacing_m);
-            const raw=ray>=0&&gate>=0&&gate<frame.descriptor.gates
-              ?frame.values[ray*frame.descriptor.gates+gate]:NaN;
-            const value=isNoData(frame.moment,raw,frame.descriptor.units)
-              ?NaN:raw*valueFactor(frame.moment,frame.descriptor.units);
-            const unit=getPalette(frame.moment,'operational').unit;
-            const info=document.getElementById('gate');
-            if(info)info.textContent=frame.moment+' • '+tile.label+' • '+tile.sweep.id+
-              '\nGate: '+(Number.isFinite(value)?value.toFixed(2)+' '+unit:'NO DATA')+
-              '\nAzimuth: '+az.toFixed(2)+'°\nRange: '+(range/1000).toFixed(2)+' km'+
-              '\nRadial / gate: '+ray+' / '+gate;
-          };
+            drawOutlines(cell.canvas,this.map,outlines);
+            gpuJobs.push({canvas:cell.canvas,frame});
+            this.gpu.setTiles([...gpuJobs]);
+          }else{
+            drawFrame(cell.canvas,frame,this.map,outlines);
+          }
         }catch(e){
-          caption.textContent=tile.moment+' • '+tile.label+' • unavailable';
-          console.warn('Tile unavailable',e);
+          cell.caption.textContent=tile.moment+' • '+tile.label+' • unavailable';
+          console.warn('Radar tile unavailable',e);
         }
-        // Yield one frame after each tile so controls stay responsive.
-        await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+        if(!this.gpu.ready)await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
       }
     });
     void Promise.all(workers);
-    const totalTilts=this.count===16&&this.rollingIndex?.tilts.length?
-      this.rollingIndex.tilts.length:uniqueAngles(volume).length;
-    if(this.count===16&&totalTilts>16){
-      const pages=Math.ceil(totalTilts/16);
-      const controls=document.createElement('div');controls.className='panel-pagination';
-      const prev=document.createElement('button');prev.textContent='◀';prev.disabled=this.page===0;
-      prev.onclick=()=>{this.page--;this.schedule();};
-      const label=document.createElement('span');label.textContent=(this.page+1)+' / '+pages;
-      const next=document.createElement('button');next.textContent='▶';next.disabled=this.page>=pages-1;
-      next.onclick=()=>{this.page++;this.schedule();};
-      controls.append(prev,label,next);this.grid.append(controls);
+    // The pager only changes on layout/page changes.
+    if(structuralChange&&this.count===16){
+      const count=this.rollingIndex?.tilts.length??uniqueAngles(volume).length;
+      if(count>16){
+        const pages=Math.ceil(count/16);
+        const controls=document.createElement('div');controls.className='panel-pagination';
+        const prev=document.createElement('button');prev.textContent='◀';prev.disabled=this.page===0;
+        prev.onclick=()=>{this.page--;this.schedule();};
+        const label=document.createElement('span');label.textContent=(this.page+1)+' / '+pages;
+        const nextButton=document.createElement('button');nextButton.textContent='▶';
+        nextButton.disabled=this.page>=pages-1;
+        nextButton.onclick=()=>{this.page++;this.schedule();};
+        controls.append(prev,label,nextButton);this.grid.append(controls);
+      }
     }
   }
 }
