@@ -69,6 +69,7 @@ export class PanelGpu {
  private pending=false;
  private tiles:PanelDraw[]=[];
  private lost=false;
+ private uniforms=new Map<string,WebGLUniformLocation|null>();
  readonly maxBytes=120*1024*1024;
  error='';
  constructor(private grid:HTMLDivElement,private map:maplibregl.Map){
@@ -76,7 +77,7 @@ export class PanelGpu {
   this.canvas.setAttribute('aria-hidden','true');grid.prepend(this.canvas);
   this.canvas.addEventListener('webglcontextlost',e=>{
    e.preventDefault();this.lost=true;this.gl=null;this.program=null;
-   this.cache.clear();this.bytes=0;
+   this.cache.clear();this.uniforms.clear();this.bytes=0;
   });
   this.canvas.addEventListener('webglcontextrestored',()=>{
    this.lost=false;this.initialize();this.schedule();
@@ -97,6 +98,11 @@ export class PanelGpu {
    gl.deleteShader(vs);gl.deleteShader(fs);
    if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p)||'Link error');
    this.gl=gl;this.program=p;this.vao=gl.createVertexArray();
+   this.uniforms.clear();
+   for(const name of ['u_gate','u_lookup','u_palette','u_rect',
+      'u_center','u_span','u_radar','u_scale','u_first','u_spacing',
+      'u_gates','u_rays','u_min','u_max','u_factor','u_nd'])
+      this.uniforms.set(name,gl.getUniformLocation(p,name));
    gl.useProgram(p);gl.bindVertexArray(this.vao);
    for(const [name,n] of [['u_gate',0],['u_lookup',1],['u_palette',2]] as const)
     gl.uniform1i(gl.getUniformLocation(p,name),n);
@@ -155,7 +161,7 @@ export class PanelGpu {
   gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);gl.disable(gl.SCISSOR_TEST);
   gl.viewport(0,0,w,h);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(p);gl.bindVertexArray(this.vao);
-  const u=(name:string)=>gl.getUniformLocation(p,name);
+  const u=(name:string)=>this.uniforms.get(name)??null;
   const center=maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter());
   const world=512*2**this.map.getZoom(),size=this.map.getContainer().getBoundingClientRect();
   gl.uniform2f(u('u_center'),center.x,center.y);
