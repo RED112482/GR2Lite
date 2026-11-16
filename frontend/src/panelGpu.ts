@@ -69,6 +69,8 @@ export class PanelGpu {
  private pending=false;
  private tiles:PanelDraw[]=[];
  private lost=false;
+ private failed=false;
+ onFailure?:()=>void;
  private uniforms=new Map<string,WebGLUniformLocation|null>();
  readonly maxBytes=120*1024*1024;
  error='';
@@ -77,14 +79,15 @@ export class PanelGpu {
   this.canvas.setAttribute('aria-hidden','true');grid.prepend(this.canvas);
   this.canvas.addEventListener('webglcontextlost',e=>{
    e.preventDefault();this.lost=true;this.gl=null;this.program=null;
+   this.onFailure?.();
    this.cache.clear();this.uniforms.clear();this.bytes=0;
   });
   this.canvas.addEventListener('webglcontextrestored',()=>{
-   this.lost=false;this.initialize();this.schedule();
+   this.lost=false;this.initialize();this.onFailure?.();this.schedule();
   });
   this.initialize();
  }
- get ready(){return !!(this.gl&&this.program&&!this.lost);}
+ get ready(){return !!(this.gl&&this.program&&!this.lost&&!this.failed);}
  private initialize(){
   try{
    const gl=this.canvas.getContext('webgl2',{
@@ -98,6 +101,7 @@ export class PanelGpu {
    gl.deleteShader(vs);gl.deleteShader(fs);
    if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p)||'Link error');
    this.gl=gl;this.program=p;this.vao=gl.createVertexArray();
+   this.failed=false;
    this.uniforms.clear();
    for(const name of ['u_gate','u_lookup','u_palette','u_rect',
       'u_center','u_span','u_radar','u_scale','u_first','u_spacing',
@@ -106,7 +110,8 @@ export class PanelGpu {
    gl.useProgram(p);gl.bindVertexArray(this.vao);
    for(const [name,n] of [['u_gate',0],['u_lookup',1],['u_palette',2]] as const)
     gl.uniform1i(gl.getUniformLocation(p,name),n);
-  }catch(e){this.error=String(e);console.warn('GPU panels disabled:',e);}
+  }catch(e){this.error=String(e);this.failed=true;console.warn('GPU panels disabled:',e);
+   this.onFailure?.();}
  }
  private key(f:RadarFrame){
   const s=f.sweep,d=f.descriptor;
@@ -194,8 +199,16 @@ export class PanelGpu {
     }
     gl.viewport(x,y,tw,th);gl.scissor(x,y,tw,th);
     gl.drawArrays(gl.TRIANGLES,0,3);
-   }catch(e){this.error=String(e);console.warn('GPU radar panel failed:',e);}
+   }catch(e){this.fail(e);return;}
   }
   gl.disable(gl.SCISSOR_TEST);
+  const error=gl.getError();
+  if(error!==gl.NO_ERROR)this.fail('WebGL error 0x'+error.toString(16));
+ }
+ private fail(reason:unknown){
+  if(this.failed)return;
+  this.error=String(reason);this.failed=true;
+  console.warn('Multi-panel GPU falling back to CPU:',reason);
+  this.onFailure?.();
  }
 }
