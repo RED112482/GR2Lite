@@ -39,6 +39,7 @@ radar.onGpuStatus=(text)=>{el<HTMLSpanElement>('gpuLabel').textContent=text;};
 map.once('load',()=>{try{map.addLayer(radar);}catch(e){showError(e);}});
 map.on('error',e=>console.warn('Map tile or renderer warning',e.error));
 let volume:VolumeDescriptor|undefined;
+let latestScanVolume:VolumeDescriptor|undefined;
 let moment:Moment='REF';
 let sweep:SweepDescriptor|undefined;
 let current:RadaFrameAlias|undefined;
@@ -119,25 +120,31 @@ async function descriptorFor(id:string):Promise<VolumeDescriptor>{
   return v;
 }
 function updateScanningStrip(){
-  const chosen=volume;
-  renderScanStrip(chosen,sweep?.id,(angle)=>{
+  // Always track the latest ingested scan even while viewing older loop frames.
+  const chosen=latestScanVolume??volume;
+  const selected=chosen?.volume_id===volume?.volume_id?sweep?.id:undefined;
+  renderScanStrip(chosen,selected,(angle)=>{
     if(!chosen)return;
-    if(panelManager.count!==1){
-      if(panelManager.count===16){
-        panelManager.selectAngle(angle);
-      }else{
-        panelManager.setElevation(angle);
+    void (async()=>{
+      if(volume?.volume_id!==chosen.volume_id){
+        stopPlayback();
+        el<HTMLInputElement>('followLive').checked=true;
+        await chooseVolume(chosen,false);
       }
-      return;
-    }
-    const candidates=chosen.sweeps.filter(s=>s.moments[moment]);
-    const matching=candidates.filter(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
-    if(!matching.length)return;
-    // For a repeated elevation, prefer its latest occurrence.
-    sweep=matching.reduce((best,s)=>Date.parse(s.time_utc[s.time_utc.length-1])>
-      Date.parse(best.time_utc[best.time_utc.length-1])?s:best);
-    renderTiltOptions();
-    void loadFrame();
+      if(panelManager.count!==1){
+        if(panelManager.count===16)panelManager.selectAngle(angle);
+        else panelManager.setElevation(angle);
+        return;
+      }
+      const candidates=chosen.sweeps.filter(s=>s.moments[moment]);
+      const matching=candidates.filter(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
+      if(!matching.length)return;
+      // Repeated SAILS/MRLE elevations should select the most recent cut.
+      sweep=matching.reduce((best,s)=>Date.parse(s.time_utc[s.time_utc.length-1])>
+        Date.parse(best.time_utc[best.time_utc.length-1])?s:best);
+      renderTiltOptions();
+      await loadFrame();
+    })().catch(showError);
   });
 }
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
@@ -275,6 +282,9 @@ async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
   const oldMoment=moment,oldAngle=sweep?.fixed_angle_deg;
   const previousRadar=volume?.radar_id;
   volume=selected;
+  if(initial||el<HTMLInputElement>('followLive').checked){
+    latestScanVolume=selected;
+  }
   el<HTMLElement>('radarName').textContent=selected.radar_id;
   const supported=momentOrder.filter(m=>selected.sweeps.some(s=>s.moments[m]));
   moment=supported.includes(oldMoment)?oldMoment:(supported.includes('REF')?'REF':supported[0]);
@@ -314,6 +324,16 @@ async function syncRadar(initial=false){
     const list=await fetchVolumeIndex(root);
     availableVolumes=list;
     historyCoverage=Number(info.history_minutes_available??0);
+    // Refresh scan-status independently of the user's historical playback.
+    const newest=list[0];
+    if(newest&&newest.volume_id!==latestScanVolume?.volume_id){
+      void descriptorFor(newest.volume_id).then(v=>{
+        if(availableVolumes[0]?.volume_id===v.volume_id){
+          latestScanVolume=v;
+          updateScanningStrip();
+        }
+      }).catch(e=>console.warn('Latest scan metadata unavailable:',e));
+    }
     const follow=el<HTMLInputElement>('followLive').checked;
     const target=follow?list[0]:list.find(v=>v.volume_id===volume?.volume_id)??list[0];
     if(!target){
@@ -358,6 +378,8 @@ async function connect(){
   prefetching.clear();
   scanStats.clear();
   descriptorCache.clear();
+  latestScanVolume=undefined;
+  updateScanningStrip();
   boundariesLoaded=false;
   clearError();setStatus('CONNECTING');
   localStorage.setItem('gr2lite-api',apiInput.value.trim());
