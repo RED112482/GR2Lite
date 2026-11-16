@@ -23,7 +23,7 @@ async function mockRadar(page:Page,withHistory=false) {
     const json=(body:unknown)=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
     if(pathname==='/radar/status')return json({
       mode:'archive',state:'ready',latest_volume_id:descriptor.volume_id,
-      age_seconds:null,last_error:null,last_check_utc:null
+      age_seconds:18,last_error:null,last_check_utc:null,latency_metrics:{discovery_ms:12.5,download_ms:83.2,decode_ms:210.4,publish_ms:3.1}
     });
     if(pathname==='/volumes/index')return json([
       {volume_id:descriptor.volume_id,radar_id:'KMOB',time_utc:baseTime,sweeps:2},
@@ -130,4 +130,16 @@ test('scan progress stays live while navigating older radar time',async({page})=
   await expect(page.locator('#volumeLabel')).toContainText('KMOB_TEST_VOLUME_OLDER');
   await expect(page.locator('#stripLatest')).toContainText('1.5°');
   await expect(page.locator('#scanTilts .scan-tilt.newest')).toContainText('1.5');
+});
+
+test('performance panel shows actual backend stages and browser frame timing',async({page})=>{
+  await mockRadar(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await expect(page.locator('#perfRayAge')).toHaveText('18 s');
+  await expect(page.locator('#perfDiscovery')).toHaveText('12.5 ms');
+  await expect(page.locator('#perfDownload')).toHaveText('83.2 ms');
+  await expect(page.locator('#perfDecode')).toContainText('210.4 ms');
+  await expect(page.locator('#perfTransfer')).toContainText('ms');
+  await expect(page.locator('#perfFrame')).toContainText('ms');
 });
