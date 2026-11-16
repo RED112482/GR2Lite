@@ -32,7 +32,7 @@ if not exist "frontend\node_modules" (
 )
 echo Starting experimental incremental KMOB Level-II viewer...
 echo NOTE: This uses real-time Level-II chunks, with completed-volume fallback.
-start "GR2Lite Backend" cmd /k "cd /d ""%~dp0backend"" && set GR2LITE_MODE=chunks&& .venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000"
+start "GR2Lite Backend" cmd /k "cd /d ""%~dp0backend"" && set GR2LITE_MODE=chunks&& set GR2LITE_HISTORY_DIR=data\history&& set GR2LITE_HISTORY_MINUTES=60&& .venv\Scripts\python.exe -m uvicorn gr2lite.api:app --host 127.0.0.1 --port 8000"
 start "GR2Lite Frontend" cmd /k "cd /d ""%~dp0frontend"" && npm.cmd run dev"
 start "" "http://127.0.0.1:5173/GR2Lite/"
 echo Two windows are running. Close them to stop GR2Lite.
