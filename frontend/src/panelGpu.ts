@@ -172,12 +172,12 @@ export class PanelGpu {
   gl.useProgram(p);gl.bindVertexArray(this.vao);
   const u=(name:string)=>this.uniforms.get(name)??null;
   const center=maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter());
-  const world=512*2**this.map.getZoom(),size=this.map.getContainer().getBoundingClientRect();
-  // All pane plots have 1:1 aspect and the same square geographic footprint.
-  // Radar beams remain circular regardless of 2/4/16 layout proportions.
-  const geographicSpan=Math.max(size.width,size.height)/world;
+  const world=512*2**this.map.getZoom();
+  // A common MERCATOR UNITS PER PIXEL preserves radar geometry without
+  // forcing rectangular panel tiles into tiny centered square viewports.
+  // Each tile has its own correct rectangular geographic extent (X and Y).
+  const mercatorPerCssPixel=1/world;
   gl.uniform2f(u('u_center'),center.x,center.y);
-  gl.uniform2f(u('u_span'),geographicSpan,geographicSpan);
   gl.enable(gl.SCISSOR_TEST);
   for(const job of this.tiles){
    if(!job.canvas.isConnected)continue;
@@ -191,6 +191,7 @@ export class PanelGpu {
     const f=job.frame,t=this.fetchTextures(f),pal=getPalette(f.moment,'operational');
     const radar=maplibregl.MercatorCoordinate.fromLngLat([f.volume.radar_lon,f.volume.radar_lat]);
     gl.uniform4f(u('u_rect'),x,y,tw,th);
+    gl.uniform2f(u('u_span'),box.width*mercatorPerCssPixel,box.height*mercatorPerCssPixel);
     gl.uniform2f(u('u_radar'),radar.x,radar.y);
     gl.uniform1f(u('u_scale'),40075016.686*Math.cos(f.volume.radar_lat*Math.PI/180));
     gl.uniform1f(u('u_first'),f.descriptor.first_gate_m);
