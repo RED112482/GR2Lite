@@ -80,3 +80,9 @@ button:hover{filter:brightness(1.12)}button.secondary{width:100%;background:#354
 .panel-grid{z-index:3}
 .panel-tile canvas{image-rendering:auto}
 @media(max-width:850px){.header-layouts{gap:2px}.header-layouts button{padding:6px;font-size:11px}.brand .minor{display:none}}
+
+.mini-colorbar{position:absolute;top:10px;right:6px;bottom:9px;width:32px;display:flex;flex-direction:column;
+align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radius:3px;padding:3px}
+.mini-colorbar span{font-size:8px;white-space:nowrap;color:#fff;writing-mode:horizontal-tb}
+.mini-colorbar-gradient{width:13px;flex:1;border:1px solid #9da8ac}
+.panel-grid[data-panels="16"] .mini-colorbar{display:none}
