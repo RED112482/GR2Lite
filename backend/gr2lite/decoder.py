@@ -59,6 +59,42 @@ def _range_geometry(da: xr.DataArray) -> tuple[float, float]:
     return float(r[0]), float(delta[0])
 
 
+
+def _sanitize_level2_special_values(da: xr.DataArray, values: np.ndarray, moment: Moment) -> np.ndarray:
+    """Ensure Level-II raw codes 0 (below threshold) and 1 (range folded) are ND.
+
+    Older xradar releases can expose the *scaled* special codes as finite
+    values, e.g. raw velocity 0 -> -64.5 m/s (-125.38 kt). Determine their
+    decoded values using the moment's scale/offset metadata, never by applying
+    a broad meteorological velocity threshold. Unknown metadata is left
+    untouched rather than incorrectly removing valid high-speed velocities.
+    """
+    if moment not in (Moment.REF, Moment.VEL, Moment.SW, Moment.ZDR, Moment.CC, Moment.PHI, Moment.KDP):
+        return values
+    scale=da.encoding.get("scale_factor", da.attrs.get("scale_factor"))
+    offset=da.encoding.get("add_offset", da.attrs.get("add_offset"))
+    if scale is None or offset is None:
+        # Standard 8-bit NEXRAD VRADH: codes 0/1 decode to -64.5/-64 m/s.
+        # Compatibility for earlier xradar versions dropping encoding metadata.
+        if moment==Moment.VEL and "m/s" in str(da.attrs.get("units","")).lower():
+            mask=np.isclose(values,-64.5,rtol=0,atol=0.00001) | np.isclose(values,-64.0,rtol=0,atol=0.00001)
+            if mask.any():
+                values=values.copy()
+                values[mask]=np.nan
+        return values
+    try:
+        special=[float(offset),float(offset)+float(scale)]
+    except (TypeError,ValueError):
+        return values
+    if not all(np.isfinite(x) for x in special):return values
+    mask=np.isclose(values,special[0],rtol=0,atol=0.00001)
+    mask|=np.isclose(values,special[1],rtol=0,atol=0.00001)
+    if mask.any():
+        values=values.copy()
+        values[mask]=np.nan
+    return values
+
+
 def _read_sweep(ds: xr.Dataset, sweep_id: str, idx: int):
     if "azimuth" not in ds or "elevation" not in ds or "time" not in ds:
         raise ValueError(f"{sweep_id}: missing required radial coordinate")
@@ -85,6 +121,7 @@ def _read_sweep(ds: xr.Dataset, sweep_id: str, idx: int):
         first, step = _range_geometry(da)
         values = np.ascontiguousarray(values.astype("<f4"))
         values[~np.isfinite(values)] = np.nan
+        values = _sanitize_level2_special_values(da,values,moment)
         desc = MomentDescriptor(name=moment, source_variable=var,
                                 units=str(da.attrs.get("units", "unknown")),
                                 rays=n, gates=values.shape[1],
