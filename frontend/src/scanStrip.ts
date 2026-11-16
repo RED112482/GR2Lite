@@ -64,12 +64,31 @@ export function scanStripState(v:VolumeDescriptor,selectedId?:string):ScanStripS
     supplemental='NONE OBSERVED';
     supplementalTitle='No separated low-level rescans observed in the complete volume; this does not prove the operator setting.';
   }
+  // Authoritative Level-II RDA metadata takes precedence over inferred scan
+  // patterns. Message 5 supplies dynamic_scan_type, Message 2 AVSET state.
+  const dynamic=v.dynamic_scan_type?.trim();
+  if(dynamic) {
+    const normalized=dynamic.toUpperCase().replace(/\s+/g,' ');
+    if(normalized==='STANDARD' || normalized==='NONE') {
+      supplemental='NONE';
+    }else if(normalized.startsWith('SAILS')) {
+      supplemental=normalized.replace(/\s*X\s*/,' × ');
+    }else if(normalized.startsWith('MRLE')) {
+      supplemental=normalized.replace(/\s*X\s*/,' × ');
+    }else {
+      supplemental=normalized;
+    }
+    supplementalTitle='Reported NEXRAD VCP dynamic scan type (Message 5): '+dynamic;
+  }
+  const avset=v.avset_enabled===true?'ON':v.avset_enabled===false?'OFF':'UNKNOWN';
   return {
     newestId:newest?.id??null,angles,
     vcp:v.vcp?.trim() || 'UNKNOWN',
     supplemental,supplementalTitle,
-    avset:'UNKNOWN',
-    avsetTitle:'AVSET enable/disable status is not confirmed by the current Level-II decoder. A shortened volume does not prove AVSET state.',
+    avset,
+    avsetTitle:v.avset_enabled===null||v.avset_enabled===undefined
+      ?'NEXRAD RDA status Message 2 not available; AVSET setting unknown.'
+      :'Reported NEXRAD RDA status Message 2: AVSET '+avset,
     progress:complete?'VOLUME COMPLETE':sweeps.length+' CUT'+(sweeps.length===1?'':'S')+' RECEIVED',
   };
 }
