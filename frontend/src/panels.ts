@@ -52,7 +52,8 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
   const mapSize=map.getContainer().getBoundingClientRect();
   const fullWorldPx=512*2**map.getZoom();
   // All panel views share one camera center and the same geographic footprint.
-  const deltaX=mapSize.width/fullWorldPx/w,deltaY=mapSize.height/fullWorldPx/h;
+  const geographicSpan=Math.max(mapSize.width,mapSize.height)/fullWorldPx;
+  const deltaX=geographicSpan/w,deltaY=geographicSpan/h;
   const [cx,cy]=projection(map.getCenter().lng,map.getCenter().lat);
   const [rx,ry]=projection(f.volume.radar_lon,f.volume.radar_lat);
   const scale=40075016.686*Math.cos(f.volume.radar_lat*Math.PI/180);
@@ -370,10 +371,18 @@ export class PanelManager {
     this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
     this.grid.style.gridTemplateRows='repeat('+(this.count===2?1:this.count===4?2:4)+',minmax(0,1fr))';
     const tiles=this.tiles();
+    const newest=volume.sweeps.reduce<SweepDescriptor|undefined>((best,s)=>{
+      const time=Date.parse(s.time_utc[s.time_utc.length-1]??'');
+      const prior=Date.parse(best?.time_utc[best.time_utc.length-1]??'');
+      return !best||(Number.isFinite(time)&&time>prior)?s:best;
+    },undefined);
     const jobs=tiles.map((tile,index)=>{
       const box=document.createElement('div');box.className='panel-tile';
       if(index===this.selectedIndex)box.classList.add('active');
-      const canvas=document.createElement('canvas');
+      if(this.count===16&&newest&&Math.abs(tile.sweep.fixed_angle_deg-newest.fixed_angle_deg)<0.16)
+        box.classList.add('latest-sweep');
+      const plot=document.createElement('div');plot.className='panel-plot';
+      const canvas=document.createElement('canvas');plot.append(canvas);
       const caption=document.createElement('span');caption.className='panel-caption';
       caption.textContent=tile.moment+' • '+tile.label+' • loading…';
       const palette=getPalette(tile.moment,'operational');
@@ -383,7 +392,7 @@ export class PanelManager {
       const gradient=document.createElement('div');gradient.className='mini-colorbar-gradient';
       gradient.style.background=cssGradient(palette).replace('to right','to top');
       bar.append(high,gradient,low);
-      box.append(canvas,caption,bar);this.grid.append(box);
+      box.append(plot,caption,bar);this.grid.append(box);
       box.addEventListener('dblclick',()=>{this.activate(index);this.setCount(1);this.selectCut(tile.sweep);});
       box.addEventListener('click',()=>this.activate(index));
       return {tile,canvas,caption};
