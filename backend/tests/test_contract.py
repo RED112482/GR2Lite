@@ -99,3 +99,21 @@ def test_velocity_special_codes_without_encoding_metadata():
     result=_sanitize_level2_special_values(da,arr.copy(),Moment.VEL)
     assert np.isnan(result[0,0]) and np.isnan(result[0,1])
     assert result[0,2]==-63.5
+
+def test_volume_metadata_gzip_and_plain_json_responses():
+    from gzip import decompress
+    volume=decode_tree(sample_tree(),"KMOB","fixture")
+    CACHE.clear()
+    CACHE["fixture"]=volume
+    try:
+        with TestClient(app) as client:
+            zipped=client.get("/volumes/fixture",headers={"Accept-Encoding":"gzip"})
+            assert zipped.status_code==200
+            assert zipped.headers.get("content-encoding") in (None,"gzip")
+            assert zipped.json()["volume_id"]=="fixture"
+            plain=client.get("/volumes/fixture",headers={"Accept-Encoding":"identity"})
+            assert plain.status_code==200
+            assert plain.headers.get("content-encoding") is None
+            assert plain.json()["sweeps"][0]["ray_count"]==2
+    finally:
+        CACHE.clear()
