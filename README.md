@@ -265,3 +265,29 @@ rendering path is used instead. This should be treated as an experimental
 performance implementation until visually verified with live KMOB sweeps
 on the target workstation; build and browser UI tests alone do not establish
 correct pixel-level output or guaranteed frame rates.
+
+## Equal-aspect multi-panel layouts and performance
+
+The 2-, 4-, and 16-panel modes now use **equal-sized grid cells** with
+**square, centered geographic radar plots** in each tile. Extra space is
+letterboxed rather than stretching NEXRAD radial geometry. The GPU shader,
+native-gate click sampling, the CPU fallback, and boundary overlays all use
+the same square geographic extent based on the single-panel camera's zoom.
+The 16-panel layout uses a 4×4 grid and shows **all rolling available unique
+elevations** from current and preceding complete volumes (paged only above
+16). The most recently acquired elevation has a green ring around its pane;
+the separately selected pane keeps its blue selection outline.
+
+For better responsiveness, unchanged panel DOM elements are retained across
+moment, tilt, and live-snapshot updates. The browser reuses decoded gates
+and WebGL textures, limits concurrent gate downloads to six tiles, and
+reuses a single rendered reference-outline canvas across all same-sized
+panes rather than reprojecting county/state/CWA lines 16 times. Sixteen-panel
+GPU framebuffer resolution is capped to reduce GPU fill-rate usage, while
+native gate samples are preserved (only display resolution changes).
+The CPU Canvas fallback remains available.
+
+These optimizations improve the rendering architecture but do not promise
+the same FPS on every Windows GPU. The browser regression suite checks
+equal geometry, prior-volume upper cuts, the newest ring, and DOM reuse;
+real continuous-radar performance should still be checked locally.
