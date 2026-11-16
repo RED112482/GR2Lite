@@ -79,3 +79,23 @@ def test_nonfinite_optional_radar_altitude_is_normalized_and_api_returns_json():
             assert data[0]["sweeps"][0]["moments"]["REF"]["gates"] == 3
     finally:
         CACHE.clear()
+
+def test_velocity_scaled_special_codes_render_nd():
+    from gr2lite.decoder import _sanitize_level2_special_values
+    values=np.array([[-64.5,-64.0,-63.5,-15.0,22.0]],dtype="<f4")
+    da=xr.DataArray(values,dims=("azimuth","range"),attrs={"units":"m/s"})
+    da.encoding["scale_factor"]=0.5
+    da.encoding["add_offset"]=-64.5
+    cleaned=_sanitize_level2_special_values(da,values.copy(),Moment.VEL)
+    assert np.isnan(cleaned[0,0]) and np.isnan(cleaned[0,1])
+    assert cleaned[0,2]==-63.5 and cleaned[0,3]==-15
+    # Mask only known special codes; do not replace all strong velocities.
+    assert np.isfinite(cleaned[0,4])
+
+def test_velocity_special_codes_without_encoding_metadata():
+    from gr2lite.decoder import _sanitize_level2_special_values
+    arr=np.array([[-64.5,-64.0,-63.5,5]],dtype="<f4")
+    da=xr.DataArray(arr,dims=("azimuth","range"),attrs={"units":"m/s"})
+    result=_sanitize_level2_special_values(da,arr.copy(),Moment.VEL)
+    assert np.isnan(result[0,0]) and np.isnan(result[0,1])
+    assert result[0,2]==-63.5
