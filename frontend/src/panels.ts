@@ -1,4 +1,5 @@
 import maplibregl from 'maplibre-gl';
+import {getBoundary} from './boundaryData';
 
 import {isNoData} from './radar';
 import type {Moment, RadarFrame, SweepDescriptor, VolumeDescriptor} from './radar';
@@ -139,9 +140,7 @@ export class PanelManager {
     this.segments=[];
     for(const kind of ['counties','states','cwa']){
       try{
-        const response=await fetch(this.api().replace(/\/$/,'')+'/boundaries/'+kind);
-        if(!response.ok)continue;
-        const json=await response.json();
+        const json=await getBoundary(this.api(),kind as 'states'|'counties'|'cwa');
         const lines:number[][][]=[];
         for(const feat of json.features??[]){
           for(const rawLine of extractLines(feat.geometry)){
