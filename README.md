@@ -198,3 +198,30 @@ Missing measurements are shown as —, never fabricated. Use these observations
 to choose between decoder optimization, network strategy, or GPU work. A
 more rigorous future benchmark should add frame presentation timestamps and
 percentile distributions across sustained live sessions.
+
+## Rolling full-volume elevation rail
+
+The status strip now uses `GET /radar/tilts` to build a coherent elevation
+sequence from the **current partial volume** plus the **immediately preceding
+completed volume** (same radar/VCP and no more than 20 minutes older).
+This is particularly useful early in a new volume: low levels are already
+fresh, while the most recent upper levels belong to the prior complete scan.
+
+- **Solid chip:** that elevation has been received in the current volume.
+- **Dashed/dim `PREV` chip:** elevation is not yet present in the new volume;
+  the newest available matching cut is from the previous complete volume.
+- **Glowing green:** actual latest received cut, independent of the selected tilt.
+- **Blue outline:** selected cut, including when it came from the older volume.
+- Up/down arrows in single-panel and supported multi-panel modes navigate
+  the entire rolling angle sequence, crossing the volume boundary when needed.
+- A click on a `PREV` chip loads the actual older volume and sweep ID. It does
+  not substitute a low-level gate or interpolate one volume into another.
+- For SAILS/MRLE repeat cuts, the latest acquisition of a given angle/product
+  is preferred. Current-volume data always replaces previous-volume data
+  as those elevations arrive.
+- Changing VCP or losing prior complete-volume data gracefully limits
+  navigation to the elevations actually available; it does not invent missing
+  cuts.
+
+This is an *availability* rail, not a synthetic merged Level-II volume.
+Radar data and acquisition timestamps remain tied to their original source.
