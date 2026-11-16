@@ -57,7 +57,8 @@ let syncing=false;
 let boundariesLoaded=false;
 panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),
   s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,
-  tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();void loadFrame();});
+  tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();void loadFrame();},
+  count=>radar.setVisible(count===1));
 document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
   button.onclick=()=>{
     const count=Number(button.dataset.panels) as 1|2|4|16;
