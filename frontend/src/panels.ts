@@ -101,13 +101,16 @@ function extractLines(geometry:{type:string;coordinates:any}):number[][][]{
 export class PanelManager {
   count:Count=1;
   private page=0;
+  private selectedIndex=0;
+  private overrides=new Map<number,{moment:Moment;angle:number}>();
   private segments:Segments=[];
   private boundariesRequested=false;
   private generation=0;
   private timer=0;
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
               private api:()=>string,private selectCut:(s:SweepDescriptor)=>void,
-              private loadFrame:(volume:VolumeDescriptor,sweep:SweepDescriptor,moment:Moment)=>Promise<RadarFrame>){
+              private loadFrame:(volume:VolumeDescriptor,sweep:SweepDescriptor,moment:Moment)=>Promise<RadarFrame>,
+              private onSelected:(tile:Tile)=>void){
     map.on('moveend',()=>this.schedule());
     this.grid.addEventListener('wheel',e=>{
       e.preventDefault();
@@ -150,7 +153,7 @@ export class PanelManager {
     this.schedule();
   }
   setCount(count:Count){
-    this.count=count;this.page=0;this.schedule();
+    this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.schedule();
     if(count>1)void this.loadBoundaries();
     document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(
       b=>b.classList.toggle('active',Number(b.dataset.panels)===count));
@@ -163,34 +166,90 @@ export class PanelManager {
   update(volume:VolumeDescriptor,moment:Moment,sweep:SweepDescriptor){
     const changed=this.current?.volume.volume_id!==volume.volume_id;
     this.current={volume,moment,angle:sweep.fixed_angle_deg};
-    if(changed)this.page=0;
+    if(changed && this.current && volume.radar_id!==this.current.volume.radar_id)this.overrides.clear();
+    if(changed && volume.volume_id.split('_CH')[0]!==this.current?.volume.volume_id.split('_CH')[0])this.page=0;
     this.schedule();
   }
+  /** Resolve each pane independently. Selection controls apply to that pane only. */
   private tiles():Tile[]{
     if(!this.current)return [];
     const {volume,moment,angle}=this.current;
     const angles=uniqueAngles(volume);
-    const index=angles.reduce((best,s,i)=>Math.abs(s.fixed_angle_deg-angle)<Math.abs(angles[best].fixed_angle_deg-angle)?i:best,0);
-    if(this.count===16){
-      // The 16-panel view represents each *actual* elevation cut, never a
-      // closest-angle substitute mislabeled as the requested elevation.
-      return angles.slice(this.page*16,(this.page+1)*16)
-        .map(s=>{
-          const selected:Moment=s.moments[moment]?moment:
-            s.moments.REF?'REF':
-            s.moments.VEL?'VEL':
-            (Object.keys(s.moments)[0] as Moment);
-          return {sweep:s,moment:selected,label:s.fixed_angle_deg.toFixed(1)+'°'};
-        }).filter(t=>Boolean(t.moment));
-    }
-    const chosen=angles[index]??angles[0];
-    const next=angles[Math.min(angles.length-1,index+1)]??chosen;
-    const make=(m:Moment,s:SweepDescriptor):Tile=>{
-      const found=bestCut(volume,m,s.fixed_angle_deg);
-      return {sweep:found??s, moment:found?m:'REF', label:s.fixed_angle_deg.toFixed(1)+'°'};
-    };
-    return this.count===2?[make('REF',chosen),make('VEL',chosen)]
-      :[make('REF',chosen),make('VEL',chosen),make('REF',next),make('VEL',next)];
+    if(!angles.length)return [];
+    const index=angles.reduce((best,s,i)=>
+      Math.abs(s.fixed_angle_deg-angle)<Math.abs(angles[best].fixed_angle_deg-angle)?i:best,0);
+    const requested=this.count===16
+      ?angles.slice(this.page*16,(this.page+1)*16).map(s=>({angle:s.fixed_angle_deg,moment}))
+      :this.count===2
+        ?[{angle:angles[index].fixed_angle_deg,moment:'REF' as Moment},
+          {angle:angles[index].fixed_angle_deg,moment:'VEL' as Moment}]
+        :[{angle:angles[index].fixed_angle_deg,moment:'REF' as Moment},
+          {angle:angles[index].fixed_angle_deg,moment:'VEL' as Moment},
+          {angle:angles[Math.min(angles.length-1,index+1)].fixed_angle_deg,moment:'REF' as Moment},
+          {angle:angles[Math.min(angles.length-1,index+1)].fixed_angle_deg,moment:'VEL' as Moment}];
+    return requested.map((base,i)=>{
+      const custom=this.overrides.get(this.page*16+i)??base;
+      const actualAngle=this.count===16?base.angle:custom.angle;
+      let s=bestCut(volume,custom.moment,actualAngle);
+      // Split cuts may have a REF/VEL cut for the same angle. Do not mislabel
+      // a distant elevation as this pane's selected elevation.
+      if(!s||Math.abs(s.fixed_angle_deg-actualAngle)>0.18){
+        s=angles.find(a=>Math.abs(a.fixed_angle_deg-actualAngle)<0.18)??angles[index];
+      }
+      const product:Moment=s.moments[custom.moment] ? custom.moment :
+        s.moments.REF?'REF':s.moments.VEL?'VEL':
+        Object.keys(s.moments)[0] as Moment;
+      return {sweep:s,moment:product,label:s.fixed_angle_deg.toFixed(1)+'°'};
+    });
+  }
+  active():Tile|undefined {
+    if(this.count===1)return undefined;
+    return this.tiles()[this.selectedIndex];
+  }
+  private activate(index:number) {
+    this.selectedIndex=index;
+    this.grid.querySelectorAll('.panel-tile').forEach((node,i)=>
+      node.classList.toggle('active',i===index));
+    const tile=this.active();
+    if(tile)this.onSelected(tile);
+  }
+  setProduct(moment:Moment):boolean {
+    if(this.count===1||!this.current)return false;
+    const tile=this.active();
+    if(!tile)return false;
+    const target=bestCut(this.current.volume,moment,tile.sweep.fixed_angle_deg);
+    if(!target || Math.abs(target.fixed_angle_deg-tile.sweep.fixed_angle_deg)>0.18)return false;
+    const key=this.page*16+this.selectedIndex;
+    this.overrides.set(key,{moment,angle:tile.sweep.fixed_angle_deg});
+    this.schedule();
+    const next=this.active();
+    if(next)this.onSelected(next);
+    return true;
+  }
+  setElevation(angle:number):boolean {
+    if(this.count===1||this.count===16||!this.current)return false;
+    const tile=this.active();
+    if(!tile)return false;
+    const chosen=bestCut(this.current.volume,tile.moment,angle);
+    if(!chosen||Math.abs(chosen.fixed_angle_deg-angle)>0.18)return false;
+    this.overrides.set(this.page*16+this.selectedIndex,{moment:tile.moment,angle:chosen.fixed_angle_deg});
+    this.schedule();
+    const next=this.active();
+    if(next)this.onSelected(next);
+    return true;
+  }
+  stepElevation(direction:-1|1):boolean {
+    if(this.count===1||this.count===16||!this.current)return false;
+    const tile=this.active();
+    if(!tile)return false;
+    const available=uniqueAngles(this.current.volume)
+      .filter(s=>this.current!.volume.sweeps.some(t=>
+        Math.abs(t.fixed_angle_deg-s.fixed_angle_deg)<0.18&&t.moments[tile.moment]));
+    const angle=tile.sweep.fixed_angle_deg;
+    const chosen=direction===1
+      ?available.find(s=>s.fixed_angle_deg>angle+0.16)
+      :[...available].reverse().find(s=>s.fixed_angle_deg<angle-0.16);
+    return chosen?this.setElevation(chosen.fixed_angle_deg):false;
   }
 
   async renderCurrent(){
@@ -206,8 +265,9 @@ export class PanelManager {
     this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
     this.grid.style.gridTemplateRows='repeat('+(this.count===2?1:this.count===4?2:4)+',minmax(0,1fr))';
     const tiles=this.tiles();
-    const jobs=tiles.map(tile=>{
+    const jobs=tiles.map((tile,index)=>{
       const box=document.createElement('div');box.className='panel-tile';
+      if(index===this.selectedIndex)box.classList.add('active');
       const canvas=document.createElement('canvas');
       const caption=document.createElement('span');caption.className='panel-caption';
       caption.textContent=tile.moment+' • '+tile.label+' • loading…';
@@ -219,11 +279,8 @@ export class PanelManager {
       gradient.style.background=cssGradient(palette).replace('to right','to top');
       bar.append(high,gradient,low);
       box.append(canvas,caption,bar);this.grid.append(box);
-      box.addEventListener('dblclick',()=>{this.setCount(1);this.selectCut(tile.sweep);});
-      box.addEventListener('click',()=>{
-        this.grid.querySelectorAll('.panel-tile').forEach(n=>n.classList.remove('active'));
-        box.classList.add('active');
-      });
+      box.addEventListener('dblclick',()=>{this.activate(index);this.setCount(1);this.selectCut(tile.sweep);});
+      box.addEventListener('click',()=>this.activate(index));
       return {tile,canvas,caption};
     });
     // Populate all panels immediately, then fetch/render at bounded concurrency.
