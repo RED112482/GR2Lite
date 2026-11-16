@@ -143,3 +143,46 @@ test('performance panel shows actual backend stages and browser frame timing',as
   await expect(page.locator('#perfTransfer')).toContainText('ms');
   await expect(page.locator('#perfFrame')).toContainText('ms');
 });
+
+test('latest-volume elevation strip includes previous complete upper tilts and arrows cross volume',async({page})=>{
+  await mockRadar(page,true);
+  const newest={...descriptor,volume_id:'KMOB_TEST_VOLUME',volume_complete:false,sweeps:[sweeps[0]]};
+  const high={...sweeps[1],id:'sweep_2',index:2,fixed_angle_deg:2.4};
+  const previous={...descriptor,volume_id:'KMOB_TEST_VOLUME_OLDER',volume_complete:true,
+    sweeps:[sweeps[0],sweeps[1],high]};
+  await page.route('**/api/volumes/KMOB_TEST_VOLUME',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify(newest)
+  }));
+  await page.route('**/api/volumes/KMOB_TEST_VOLUME_OLDER',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify(previous)
+  }));
+  await page.route('**/api/radar/tilts',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify({
+      volume_id:newest.volume_id,previous_volume_id:previous.volume_id,volume_complete:false,
+      newest:{sweep_id:'sweep_0',angle:0.5,time_utc:baseTime},
+      tilts:[
+        {angle:0.5,current:true,newest:true,count_current:1,time_utc:baseTime,
+          moments:{REF:{volume_id:newest.volume_id,sweep_id:'sweep_0',current:true,time_utc:baseTime}}},
+        {angle:1.5,current:false,newest:false,count_current:0,time_utc:baseTime,
+          moments:{REF:{volume_id:previous.volume_id,sweep_id:'sweep_1',current:false,time_utc:baseTime}}},
+        {angle:2.4,current:false,newest:false,count_current:0,time_utc:baseTime,
+          moments:{REF:{volume_id:previous.volume_id,sweep_id:'sweep_2',current:false,time_utc:baseTime}}}
+      ]
+    })
+  }));
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await expect(page.locator('#scanTilts .scan-tilt')).toHaveCount(3);
+  await expect(page.locator('#scanTilts .scan-tilt.prior')).toHaveCount(2);
+  await expect(page.locator('#scanTilts .scan-tilt.newest')).toContainText('0.5');
+  await page.locator('body').click({position:{x:1000,y:300}});
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('#volumeLabel')).toContainText('KMOB_TEST_VOLUME_OLDER',{timeout:10000});
+  await expect(page.locator('#angleLabel')).toContainText('1.50');
+  await expect(page.locator('#scanTilts .scan-tilt.selected')).toContainText('1.5');
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('#angleLabel')).toContainText('2.40');
+  await expect(page.locator('#scanTilts .scan-tilt.newest')).toContainText('0.5');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#angleLabel')).toContainText('1.50');
+});
