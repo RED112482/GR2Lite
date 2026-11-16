@@ -67,9 +67,19 @@ volume ingest path remains a fallback.
 - The frontend fetches a compact time index and downloads detailed metadata
   only when a volume is selected; previously received complete sweeps share
   their gate buffers across new chunk snapshots.
-- GPU renderer skips uploading unchanged complete sweeps, and uses
-  `texSubImage2D` when the new scan's texture dimensions are unchanged.
-  These are **sweep-level** updates, not per-radial GPU patching yet.
+- GPU renderer caches recently displayed gate and azimuth textures in a
+  **96 MiB GPU LRU** so time looping can revisit frames without repeat
+  uploads. A linear-time lookup replaces the earlier per-bin/ray scan.
+  These remain **sweep-level** updates, not per-radial GPU patching yet.
+- The browser keeps a **160 MiB native-gate buffer** and prefetches the next
+  several radar times with at most two concurrent downloads. Select the
+  target loop rate (1.7/3.3/6.7 fps); actual speed depends on cache readiness
+  and the computer's rendering performance.
+- Radar metadata responses use lightweight HTTP gzip (native float32 gate
+  responses remain uncompressed), and the full map and panels share cached
+  NOAA reference outlines.
+- A slow completed-volume fallback runs on a separate thread so it cannot
+  block incremental S3 chunk checks.
 - Pulling from S3 requires working Internet access.
 - **This is an experimental first implementation**; automated unit tests
   cannot substitute for a live ingest run and comparison with GR2Analyst.
@@ -88,7 +98,7 @@ volume ingest path remains a fallback.
 - `docs/live-mode.md`: manual deployment and troubleshooting
 - `docs/radar-contract.md`: JSON and binary transport contract
 
-The React/GPU and chunk layer remain experimental research components, not
+The browser/WebGL and chunk layers remain experimental research components, not
 a certified warning platform. Cloud hosting remains a future task: GitHub
 Pages hosts static resources but cannot run this Python backend.
 
