@@ -6,6 +6,7 @@ No arbitrary S3 keys from HTTP callers; anonymous public AWS only.
 from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
+from threading import Thread, Lock
 from pathlib import PurePosixPath
 import logging
 import re
@@ -81,6 +82,8 @@ class IncrementalChunkPoller(LiveArchivePoller):
         self.active_completed=False
         self.fallback=LiveArchivePoller(store,interval=45)
         self.since_archive=0
+        self._fallback_lock=Lock()
+        self._fallback_running=False
 
     def poll_once(self)->bool:
         import xradar as xd
@@ -150,11 +153,21 @@ class IncrementalChunkPoller(LiveArchivePoller):
             if len(volume.descriptor.sweeps)<=len(old[0].descriptor.sweeps):
                 self.last_snapshot=candidate
                 return False
-        self.store.publish(volume)
+        published=self.store.publish(volume)
         self.last_snapshot=candidate
+        if not published:return False
         self.store.feed_source="chunks"
         LOG.info("Published %s with %s complete cuts",snapshot_id,len(volume.descriptor.sweeps))
         return True
+
+    def _run_archive_fallback(self)->None:
+        try:
+            self.fallback.poll_once()
+        except Exception as exc:
+            LOG.warning("Completed-volume fallback unavailable: %s",exc)
+        finally:
+            with self._fallback_lock:
+                self._fallback_running=False
 
     def run(self)->None:
         while not self.stop_event.is_set():
@@ -164,13 +177,14 @@ class IncrementalChunkPoller(LiveArchivePoller):
             except Exception as exc:
                 self.store.last_error=f"Chunk feed: {type(exc).__name__}: {str(exc)[:150]}"
                 LOG.warning("Chunk feed problem; preserving last snapshot: %s",exc)
-            # Fallback only when no fresh snapshot for 10 minutes; never replace fresher data.
             self.since_archive+=1
             if self.since_archive*self.interval>=120:
                 self.since_archive=0
-                try:
-                    self.fallback.poll_once()
-                    self.store.feed_source = "archive-fallback" if self.store.feed_source != "chunks" else self.store.feed_source
-                except Exception as exc:
-                    LOG.warning("Completed-volume fallback unavailable: %s",exc)
+                # Archive fallback can take tens of seconds: run separately so it
+                # never stalls the high-priority low-latency chunk feed.
+                with self._fallback_lock:
+                    if not self._fallback_running:
+                        self._fallback_running=True
+                        Thread(target=self._run_archive_fallback,
+                               name="kmob-archive-fallback",daemon=True).start()
             self.stop_event.wait(self.interval)
