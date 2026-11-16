@@ -172,9 +172,16 @@ export class PanelManager {
     const angles=uniqueAngles(volume);
     const index=angles.reduce((best,s,i)=>Math.abs(s.fixed_angle_deg-angle)<Math.abs(angles[best].fixed_angle_deg-angle)?i:best,0);
     if(this.count===16){
+      // The 16-panel view represents each *actual* elevation cut, never a
+      // closest-angle substitute mislabeled as the requested elevation.
       return angles.slice(this.page*16,(this.page+1)*16)
-        .map((s)=>({sweep:bestCut(volume,moment,s.fixed_angle_deg)??s,moment,label:s.fixed_angle_deg.toFixed(1)+'°'}))
-        .filter(t=>Boolean(t.sweep.moments[t.moment]));
+        .map(s=>{
+          const selected:Moment=s.moments[moment]?moment:
+            s.moments.REF?'REF':
+            s.moments.VEL?'VEL':
+            (Object.keys(s.moments)[0] as Moment);
+          return {sweep:s,moment:selected,label:s.fixed_angle_deg.toFixed(1)+'°'};
+        }).filter(t=>Boolean(t.moment));
     }
     const chosen=angles[index]??angles[0];
     const next=angles[Math.min(angles.length-1,index+1)]??chosen;
