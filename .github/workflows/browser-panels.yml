@@ -1,0 +1,27 @@
+name: Browser radar pane regression
+on:
+  push:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/browser-panels.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+jobs:
+  pane-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Install Chromium and OS dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run pane selection tests
+        working-directory: frontend
+        run: npm run test:e2e
