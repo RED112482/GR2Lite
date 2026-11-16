@@ -88,6 +88,9 @@ export class PolarRadarLayer {
   private radarXY:[number,number]=[0,0];
   private scale=1;
   private frame?:RadarFrame;
+  private lastDataKey='';
+  private gpuWidth=0;
+  private gpuHeight=0;
   onGpuStatus?: (status: string) => void;
   private firstDrawNotified=false;
   private gpuFailed=false;
@@ -119,6 +122,17 @@ export class PolarRadarLayer {
   }
 
   setFrame(frame:RadarFrame) {
+    // Identical completed sweeps persist through later chunk snapshots.
+    const d=frame.descriptor,s=frame.sweep;
+    const identity=[frame.volume.radar_id,frame.moment,s.id,
+      s.time_utc[0],s.time_utc[s.time_utc.length-1],
+      d.rays,d.gates,d.first_gate_m,d.gate_spacing_m].join('|');
+    if(identity===this.lastDataKey && this.frame){
+      this.frame=frame;
+      this.map?.triggerRepaint();
+      return;
+    }
+    this.lastDataKey=identity;
     this.frame=frame;
     this.firstDrawNotified=false;
     this.gpuFailed=false;
@@ -168,7 +182,13 @@ export class PolarRadarLayer {
     gl.bufferData(gl.ARRAY_BUFFER,box,gl.STATIC_DRAW);
     setupNearest(gl,this.gateTexture!,0);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,frame.descriptor.gates,frame.descriptor.rays,0,gl.RED,gl.FLOAT,frame.values);
+    if(this.gpuWidth===frame.descriptor.gates && this.gpuHeight===frame.descriptor.rays){
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,frame.descriptor.gates,frame.descriptor.rays,gl.RED,gl.FLOAT,frame.values);
+    }else{
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,frame.descriptor.gates,frame.descriptor.rays,0,gl.RED,gl.FLOAT,frame.values);
+      this.gpuWidth=frame.descriptor.gates;
+      this.gpuHeight=frame.descriptor.rays;
+    }
     setupNearest(gl,this.lookupTexture!,1);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,3600,1,0,gl.RED,gl.FLOAT,this.lookup);
     this.uploadPalette();
@@ -242,5 +262,6 @@ export class PolarRadarLayer {
     if(this.vao)gl.deleteVertexArray(this.vao);
     if(this.program)gl.deleteProgram(this.program);
     this.gl=undefined;
+    this.gpuWidth=0;this.gpuHeight=0;this.lastDataKey='';
   }
 }
