@@ -134,7 +134,7 @@ function drawOutlines(canvas:HTMLCanvasElement,map:maplibregl.Map,segments:Segme
    for(const line of shape.lines){
     let first=true;
     for(const pair of line){
-     const [wx,wy]=projection(pair[0],pair[1]);
+     const [wx,wy]=pair;
      const x=(wx-cx)*pxPerWorld+rect.width/2;
      const y=(wy-cy)*pxPerWorld+rect.height/2;
      if(first){painter.moveTo(x,y);first=false;}else painter.lineTo(x,y);
