@@ -98,28 +98,49 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
   }
 }
 /** Boundaries are lightweight transparent Canvas2D strokes, not radar pixels. */
+/** Cache identical boundary rasters across all tiles. Outlines are the
+ * same at a given camera, footprint and tile size; drawing county polylines
+ * sixteen times per layout was a major CPU bottleneck.
+ */
+const outlinesCache=new Map<string,HTMLCanvasElement>();
 function drawOutlines(canvas:HTMLCanvasElement,map:maplibregl.Map,segments:Segments){
  const rect=canvas.getBoundingClientRect();if(rect.width<8||rect.height<8)return;
- const ratio=Math.min(devicePixelRatio||1,1.5);
- canvas.width=Math.round(rect.width*ratio);canvas.height=Math.round(rect.height*ratio);
+ const ratio=Math.min(devicePixelRatio||1,1.25);
+ const width=Math.max(1,Math.round(rect.width*ratio));
+ const height=Math.max(1,Math.round(rect.height*ratio));
+ if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
  const ctx=canvas.getContext('2d');if(!ctx)return;
- ctx.setTransform(ratio,0,0,ratio,0,0);
- const w=rect.width,h=rect.height,mapSize=map.getContainer().getBoundingClientRect();
- const world=512*2**map.getZoom();
- const deltaX=mapSize.width/world/w,deltaY=mapSize.height/world/h;
- const [cx,cy]=projection(map.getCenter().lng,map.getCenter().lat);
- for(const shape of segments){
-  ctx.strokeStyle=shape.color;ctx.lineWidth=0.7;ctx.beginPath();
-  for(const line of shape.lines){
-   let first=true;
-   for(const pair of line){
-    const [wx,wy]=projection(pair[0],pair[1]);
-    const x=(wx-cx)/deltaX+w/2,y=(wy-cy)/deltaY+h/2;
-    if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
+ const center=map.getCenter(),zoom=map.getZoom();
+ const key=[segments.length,width,height,center.lng.toFixed(5),center.lat.toFixed(5),zoom.toFixed(4)].join('|');
+ let source=outlinesCache.get(key);
+ if(!source){
+  source=document.createElement('canvas');source.width=width;source.height=height;
+  const painter=source.getContext('2d');
+  if(!painter)return;
+  painter.setTransform(ratio,0,0,ratio,0,0);
+  const mapSize=map.getContainer().getBoundingClientRect();
+  const sideSpan=Math.max(mapSize.width,mapSize.height)/(512*2**zoom);
+  const [cx,cy]=projection(center.lng,center.lat);
+  // Every map plot is square, and the projected geographic span is square.
+  const pxPerWorld=rect.width/sideSpan;
+  for(const shape of segments){
+   painter.strokeStyle=shape.color;painter.lineWidth=0.8;painter.beginPath();
+   for(const line of shape.lines){
+    let first=true;
+    for(const pair of line){
+     const [wx,wy]=projection(pair[0],pair[1]);
+     const x=(wx-cx)*pxPerWorld+rect.width/2;
+     const y=(wy-cy)*pxPerWorld+rect.height/2;
+     if(first){painter.moveTo(x,y);first=false;}else painter.lineTo(x,y);
+    }
    }
+   painter.stroke();
   }
-  ctx.stroke();
+  outlinesCache.set(key,source);
+  while(outlinesCache.size>5)outlinesCache.delete(outlinesCache.keys().next().value!);
  }
+ ctx.clearRect(0,0,width,height);
+ ctx.drawImage(source,0,0);
 }
 function extractLines(geometry:{type:string;coordinates:any}):number[][][]{
   if(!geometry||!geometry.coordinates)return [];
@@ -141,6 +162,7 @@ export class PanelManager {
   private gpu:PanelGpu;
   private rendered:PanelDraw[]=[];
   private boundariesRequested=false;
+  private lightOutlines:Segments=[];
   private generation=0;
   private timer=0;
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
@@ -170,7 +192,7 @@ export class PanelManager {
     if(this.count===1)return;
     this.gpu.schedule();
     if(this.gpu.ready){
-      const lines=this.count===16?this.segments.filter(s=>s.color!=='#697e91'):this.segments;
+      const lines=this.count===16?this.lightOutlines:this.segments;
       for(const item of this.rendered)drawOutlines(item.canvas,this.map,lines);
     }else this.schedule();
   }
@@ -196,6 +218,8 @@ export class PanelManager {
         this.segments.push({color:color[kind],lines});
       }catch(e){console.warn('Panel boundary fetch failed:',kind,e);}
     }
+    this.lightOutlines=this.segments.filter(s=>s.color!=='#697e91');
+    outlinesCache.clear();
     this.refreshViewport();
   }
   setCount(count:Count){
@@ -373,8 +397,7 @@ export class PanelManager {
         try{
           const frame=await this.loadFrame(volume,tile.sweep,tile.moment);
           if(this.generation!==generation)return;
-          const boundaryLines=this.count===16
-            ?this.segments.filter(s=>s.color!=='#697e91'):this.segments;
+          const boundaryLines=this.count===16?this.lightOutlines:this.segments;
           this.rendered.push({canvas,frame});
           if(this.gpu.ready){
             drawOutlines(canvas,this.map,boundaryLines);
