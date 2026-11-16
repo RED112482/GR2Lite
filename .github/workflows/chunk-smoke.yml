@@ -33,6 +33,8 @@ jobs:
           outcome=poller.poll_once()
           print("new completed sweeps published:",outcome)
           print("status:",store.status())
+          print("reused sweeps:",store.status().get("latency_metrics",{}).get("reused_sweeps"))
+          print("newly decoded sweeps:",store.status().get("latency_metrics",{}).get("newly_decoded_sweeps"))
           assert store.status()["state"] in ("ready","delayed","stale","empty")
           assert store.status()["volume_count"] >= (1 if outcome else 0)
           if outcome:
