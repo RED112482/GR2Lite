@@ -83,6 +83,19 @@
         <p id="overlay-status" class="help">Loading official NOAA boundaries…</p>
         <p class="help">Mouse wheel: zoom · drag: pan · ↑/↓: next/previous cut · Delete: REF/VEL</p>
       </div>
+      <div class="section" id="performancePanel">
+        <div class="section-title">LIVE PERFORMANCE <span class="perf-indicator">DIAGNOSTIC</span></div>
+        <div class="perf-grid">
+          <span>Latest ray age</span><strong id="perfRayAge">—</strong>
+          <span>Chunk discovery</span><strong id="perfDiscovery">—</strong>
+          <span>Chunk download</span><strong id="perfDownload">—</strong>
+          <span>Decode / publish</span><strong id="perfDecode">—</strong>
+          <span>Gate transfer</span><strong id="perfTransfer">—</strong>
+          <span>GPU upload*</span><strong id="perfGpu">—</strong>
+          <span>Frame load</span><strong id="perfFrame">—</strong>
+        </div>
+        <p class="help">*CPU submission duration, not GPU completion time. Durations are last observed samples, not average or guaranteed latency.</p>
+      </div>
       <div class="section"><div class="section-title">DATA NOTES</div>
         <p class="help">Experimental renderer. Geolocation uses a local planar approximation and native gate values; not verified for warning operations. Near-live mode polls completed Level-II volumes; it does not yet ingest partial sweeps. Never use experimentally decoded data for operational warning decisions.</p>
       </div>
