@@ -60,6 +60,7 @@ document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayo
   button.onclick=()=>panelManager.setCount(Number(button.dataset.panels) as 1|2|4|16);
 });
 const frameCache=new Map<string,RadarFrame>();
+const scanStats=new Map<string,{count:number;high:number;peak:number;echoes:number|null}>();
 function cacheKey(v:VolumeDescriptor,s:SweepDescriptor,m:Moment){
   // Identical completed sweeps persist through later arriving chunk snapshots.
   const d=s.moments[m];
@@ -145,15 +146,23 @@ async function loadFrame(){
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
-    let count=0, high=-Infinity, peak=-1;
-    for(let j=0;j<frame.values.length;j++){
-      const value=frame.values[j];
-      if(Number.isFinite(value)){
+    const signature=cacheKey(v,s,m);
+    let stats=scanStats.get(signature);
+    if(!stats){
+      let count=0, high=-Infinity, peak=-1;
+      let echoes=m==='REF'?0:null;
+      for(let j=0;j<frame.values.length;j++){
+        const value=frame.values[j];
+        if(!Number.isFinite(value))continue;
         count++;
         if(value>high){high=value;peak=j;}
+        if(echoes!==null&&value>=5)echoes++;
       }
+      stats={count,high,peak,echoes};
+      scanStats.set(signature,stats);
+      while(scanStats.size>60)scanStats.delete(scanStats.keys().next().value!);
     }
-    const echoes=m==='REF' ? frame.values.reduce((n,value)=>n+(Number.isFinite(value)&&value>=5?1:0),0):null;
+    const {count,high,peak,echoes}=stats;
     el<HTMLSpanElement>('validLabel').textContent=
       count.toLocaleString()+' finite bins'+(echoes!==null?' • '+echoes.toLocaleString()+' ≥5 dBZ':'');
     if(!count)throw new Error('This radar cut contains no finite '+m+' gates. Try another tilt or radar moment.');
@@ -288,6 +297,7 @@ async function syncRadar(initial=false){
 async function connect(){
   ++request;
   frameCache.clear();
+  scanStats.clear();
   descriptorCache.clear();
   boundariesLoaded=false;
   clearError();setStatus('CONNECTING');
