@@ -86,3 +86,46 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
 .mini-colorbar span{font-size:8px;white-space:nowrap;color:#fff;writing-mode:horizontal-tb}
 .mini-colorbar-gradient{width:13px;flex:1;border:1px solid #9da8ac}
 .panel-grid[data-panels="16"] .mini-colorbar{display:none}
+
+/* GR2-style live elevation scan strip: always visible in every layout. */
+.scan-strip{min-height:63px;flex-shrink:0;display:flex;align-items:center;gap:13px;
+  padding:8px 13px;background:#0e1923;border-bottom:1px solid #304556;
+  box-shadow:0 3px 12px #0004;position:relative;z-index:5}
+.scan-strip-title{display:flex;flex-direction:column;justify-content:center;gap:3px;
+  min-width:106px;color:#c9e7f6}
+.scan-strip-title strong{font-size:10px;letter-spacing:.12em;white-space:nowrap}
+.scan-strip-title small{font-size:9px;color:#91aabe;white-space:nowrap;font-variant-numeric:tabular-nums}
+.scan-strip-pulse{position:absolute;width:6px;height:6px;border-radius:50%;
+  background:#5dd7a2;top:12px;left:6px;box-shadow:0 0 8px #57ecaa}
+.scan-tilts{display:flex;align-items:center;gap:5px;min-width:0;flex:1;
+  overflow-x:auto;scrollbar-width:thin;scrollbar-color:#4f728b #0e1923;
+  padding:7px 5px;min-height:47px}
+.scan-tilt{position:relative;background:#273c4d;color:#c2d4e3;border:1px solid #476174;
+  border-radius:5px;min-width:45px;padding:7px 8px;font-size:11px;
+  font-weight:600;white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
+.scan-tilt:hover{background:#33536b}
+.scan-tilt.selected{border-color:#84bde7;color:#e8f6ff;box-shadow:inset 0 0 0 1px #6ba8d3}
+.scan-tilt.newest{background:#124935;border:1px solid #4ef0a4;color:#d9ffe9;
+  box-shadow:0 0 0 2px #3ded8e55,0 0 13px 3px #24df8c9e;
+  animation:scan-glow 2.4s ease-in-out infinite}
+.scan-repeat{position:absolute;top:-8px;right:-4px;background:#4a6d85;color:#fff;
+  font-size:8px;padding:1px 3px;border-radius:4px}
+@keyframes scan-glow{50%{box-shadow:0 0 0 2px #3ded8e77,0 0 19px 5px #24df8cbb}}
+.scan-strip-config{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.scan-config{border:1px solid #43677c;background:#203548;color:#e8f4ff;
+  border-radius:5px;padding:9px 8px;white-space:nowrap;
+  font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+.scan-config-unknown{border-color:#705a44;background:#382d24;color:#e3caa9}
+@media(max-width:1000px){
+  .scan-strip{gap:7px;padding:6px 8px}
+  .scan-strip-title{min-width:75px}
+  .scan-config{padding:8px 5px;font-size:9px}
+  .scan-tilt{min-width:40px;padding:6px;font-size:10px}
+}
+@media(max-width:680px){
+  .scan-strip{flex-wrap:wrap}
+  .scan-strip-title{min-width:76px}
+  .scan-tilts{order:3;flex-basis:100%}
+  .scan-strip-config{margin-left:auto}
+}
+@media(prefers-reduced-motion:reduce){.scan-tilt.newest{animation:none}}
