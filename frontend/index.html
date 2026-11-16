@@ -19,6 +19,14 @@
         <input id="apiRoot" type="text" placeholder="Local API or cloud URL" spellcheck="false"/>
         <button id="connect">Reconnect radar</button>
         <div class="control-row"><label for="history">Volume history (UTC)</label><select id="history"></select></div>
+        <div class="history-controls">
+          <button id="prevTime" title="Previous time (Left Arrow)">◀</button>
+          <button id="playTime" title="Play or pause radar loop">▶ Play</button>
+          <button id="nextTime" title="Next time (Right Arrow)">▶</button>
+          <button id="jumpLive" title="Resume newest radar">LIVE</button>
+        </div>
+        <input id="timeSlider" aria-label="Radar time" type="range" min="0" max="0" value="0" step="1"/>
+        <div class="history-meta"><span id="historyCoverage">Building last-hour history…</span><span id="historyPosition">—</span></div>
         <label class="follow-live"><input id="followLive" type="checkbox" checked/> Follow latest volume</label>
         <p id="feedInfo" class="help">Checking radar feed…</p>
         <p class="help">Local viewer uses <code>/api</code>. The backend can run in LIVE (recent completed volumes) or ARCHIVE mode. Cloud access requires a deployed backend.</p>
