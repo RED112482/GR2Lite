@@ -51,6 +51,14 @@ const descriptorCache=new Map<string,VolumeDescriptor>();
 const pendingFrames=new Map<string,Promise<RadarFrame>>();
 let isPlaying=false;
 let playbackTimer=0;
+let playbackGeneration=0;
+let playbackRateMs=300;
+let warmupActive=false;
+const prefetching=new Set<string>();
+const prefetchQueue:string[]=[];
+let prefetchWorkers=0;
+let cachedBytes=0;
+const MAX_GATE_CACHE_BYTES=160*1024*1024;
 let historyCoverage=0;
 let panelManager:PanelManager;
 let syncing=false;
@@ -88,8 +96,17 @@ async function cachedFrame(v:VolumeDescriptor,s:SweepDescriptor,m:Moment):Promis
   }
   try{
     const result=await promise;
-    frameCache.set(key,result);
-    while(frameCache.size>40)frameCache.delete(frameCache.keys().next().value!);
+    if(!frameCache.has(key)){
+      frameCache.set(key,result);
+      cachedBytes+=result.values.byteLength;
+    }
+    // Keep hot frames bounded by actual bytes rather than entry count.
+    while(cachedBytes>MAX_GATE_CACHE_BYTES&&frameCache.size>1){
+      const oldest=frameCache.keys().next().value!;
+      const evicted=frameCache.get(oldest)!;
+      frameCache.delete(oldest);
+      cachedBytes-=evicted.values.byteLength;
+    }
     return {...result,volume:v,sweep:s,descriptor:s.moments[m]!};
   }finally{pendingFrames.delete(key);}
 }
@@ -160,6 +177,7 @@ async function loadFrame(){
     panelManager.update(v,m,s);
     const signature=cacheKey(v,s,m);
     let stats=scanStats.get(signature);
+    if(!stats&&isPlaying){stats={count:frame.values.length,high:NaN,peak:-1,echoes:null};}
     if(!stats){
       let count=0, high=-Infinity, peak=-1;
       let echoes=m==='REF'?0:null;
@@ -284,6 +302,7 @@ async function syncRadar(initial=false){
     }
     if(initial||target.volume_id!==volume?.volume_id){
       await chooseVolume(await descriptorFor(target.volume_id),initial);
+      if(!initial)prefetchNearby();
     }else{
       currentHistory();
       setStatus(feedMode==='chunks'?(feedSource==='archive-fallback'?'FALLBACK • ':'CHUNKS • ')+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
@@ -309,6 +328,9 @@ async function syncRadar(initial=false){
 async function connect(){
   ++request;
   frameCache.clear();
+  cachedBytes=0;
+  prefetchQueue.length=0;
+  prefetching.clear();
   scanStats.clear();
   descriptorCache.clear();
   boundariesLoaded=false;
@@ -328,16 +350,63 @@ el<HTMLInputElement>('followLive').onchange=()=>{
 // Only one status poll can run at a time; keep history and view stable.
 window.setInterval(()=>{void syncRadar();},12000);
 
+// Preload next time steps ahead of playback with a strict two-download limit.
+// A slow historical file must not monopolize all browser connections or RAM.
+function prefetchNearby(){
+  if(!volume||!sweep||availableVolumes.length<2)return;
+  const index=availableVolumes.findIndex(v=>v.volume_id===volume!.volume_id);
+  if(index<0)return;
+  const candidates:VolumeIndexEntry[]=[];
+  // History is newest-first. Walking forward in a loop decrements the index.
+  for(let n=1;n<=6;n++){
+    candidates.push(availableVolumes[(index-n+availableVolumes.length*10)%availableVolumes.length]);
+  }
+  for(let n=1;n<=2;n++){
+    candidates.push(availableVolumes[(index+n)%availableVolumes.length]);
+  }
+  for(const entry of candidates){
+    if(!prefetching.has(entry.volume_id)&&!prefetchQueue.includes(entry.volume_id))
+      prefetchQueue.push(entry.volume_id);
+  }
+  void drainPrefetch();
+}
+async function drainPrefetch(){
+  while(prefetchWorkers<2&&prefetchQueue.length){
+    const id=prefetchQueue.shift()!;
+    if(prefetching.has(id))continue;
+    prefetchWorkers++;
+    prefetching.add(id);
+    void (async()=>{
+      try{
+        const v=await descriptorFor(id);
+        if(!sweep||!volume)return;
+        const m=moment,desired=sweep.fixed_angle_deg;
+        const available=v.sweeps.filter(s=>s.moments[m]);
+        if(!available.length)return;
+        const target=available.reduce((best,s)=>
+          Math.abs(s.fixed_angle_deg-desired)<Math.abs(best.fixed_angle_deg-desired)?s:best);
+        await cachedFrame(v,target,m);
+      }catch(e){
+        console.debug('Radar frame prefetch skipped:',id,e);
+      }finally{
+        prefetching.delete(id);
+        prefetchWorkers--;
+        void drainPrefetch();
+      }
+    })();
+  }
+}
 function stopPlayback(){
   isPlaying=false;
-  clearInterval(playbackTimer);
+  playbackGeneration++;
+  clearTimeout(playbackTimer);
   el<HTMLButtonElement>('playTime').textContent='▶ Play';
 }
 async function stepTime(direction:-1|1,wrap=false){
   if(!availableVolumes.length)return;
   const idx=availableVolumes.findIndex(v=>v.volume_id===volume?.volume_id);
   const currentIdx=idx<0?0:idx;
-  let next=currentIdx-direction; // -1 = older (index increases), +1 = newer
+  let next=currentIdx-direction;
   if(next<0||next>=availableVolumes.length){
     if(!wrap)return;
     next=next<0?availableVolumes.length-1:0;
@@ -345,35 +414,52 @@ async function stepTime(direction:-1|1,wrap=false){
   const target=availableVolumes[next];
   if(!target)return;
   el<HTMLInputElement>('followLive').checked=false;
-  try{await chooseVolume(await descriptorFor(target.volume_id),false);}
-  catch(e){showError(e);}
+  await chooseVolume(await descriptorFor(target.volume_id),false);
+  prefetchNearby();
+}
+async function playbackTick(generation:number){
+  if(!isPlaying||generation!==playbackGeneration)return;
+  const started=performance.now();
+  try{
+    await stepTime(1,true);
+  }catch(e){
+    console.warn('Loop buffer retry:',e);
+    el<HTMLButtonElement>('playTime').textContent='Buffering…';
+  }
+  if(!isPlaying||generation!==playbackGeneration)return;
+  el<HTMLButtonElement>('playTime').textContent='Ⅱ Pause';
+  playbackTimer=window.setTimeout(()=>{void playbackTick(generation);},
+    Math.max(0,playbackRateMs-(performance.now()-started)));
 }
 el<HTMLButtonElement>('prevTime').onclick=()=>{stopPlayback();void stepTime(-1);};
 el<HTMLButtonElement>('nextTime').onclick=()=>{stopPlayback();void stepTime(1);};
 el<HTMLButtonElement>('jumpLive').onclick=()=>{
   stopPlayback();el<HTMLInputElement>('followLive').checked=true;void syncRadar();
 };
-el<HTMLInputElement>('timeSlider').oninput=(e)=>{
+el<HTMLInputElement>('timeSlider').oninput=e=>{
   stopPlayback();
   const index=availableVolumes.length-1-Number((e.target as HTMLInputElement).value);
   const item=availableVolumes[index];
   if(item){
     el<HTMLInputElement>('followLive').checked=false;
-    void descriptorFor(item.volume_id).then(v=>chooseVolume(v,false)).catch(showError);
+    void descriptorFor(item.volume_id)
+      .then(v=>chooseVolume(v,false)).then(prefetchNearby).catch(showError);
   }
 };
 el<HTMLButtonElement>('playTime').onclick=()=>{
   if(isPlaying){stopPlayback();return;}
   if(availableVolumes.length<2)return;
   isPlaying=true;
-  el<HTMLButtonElement>('playTime').textContent='Ⅱ Pause';
+  const generation=++playbackGeneration;
+  el<HTMLButtonElement>('playTime').textContent='Buffering…';
   el<HTMLInputElement>('followLive').checked=false;
-  let busy=false;
-  playbackTimer=window.setInterval(async()=>{
-    if(busy)return;
-    busy=true;
-    try{await stepTime(1,true);}finally{busy=false;}
-  },1000);
+  // Start immediately if a frame is already cached. Otherwise warm nearby
+  // frames asynchronously and let playback advance as soon as possible.
+  prefetchNearby();
+  void playbackTick(generation);
+};
+el<HTMLSelectElement>('playbackSpeed').onchange=e=>{
+  playbackRateMs=Number((e.target as HTMLSelectElement).value);
 };
 
 el<HTMLSelectElement>('tilt').onchange=async e=>{
