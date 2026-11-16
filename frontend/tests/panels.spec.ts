@@ -214,3 +214,36 @@ test('multi-panel GPU uses one shared surface while independent controls still w
   await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
   expect(errors).toEqual([]);
 });
+
+test('GPU tiles actually paint sampled native reflectivity pixels',async({page})=>{
+  await page.addInitScript(()=>{
+    (window as any).__gpuRadarPainted=0;
+    const original=WebGL2RenderingContext.prototype.drawArrays;
+    WebGL2RenderingContext.prototype.drawArrays=function(mode,first,count){
+      original.call(this,mode,first,count);
+      const program=this.getParameter(this.CURRENT_PROGRAM) as WebGLProgram|null;
+      if(!program||!this.getUniformLocation(program,'u_rect'))return;
+      const viewport=this.getParameter(this.VIEWPORT) as Int32Array;
+      const x=viewport[0]+Math.floor(viewport[2]/2)-16;
+      const y=viewport[1]+Math.floor(viewport[3]/2)-16;
+      if(x<viewport[0]||y<viewport[1]||viewport[2]<32||viewport[3]<32)return;
+      const pixels=new Uint8Array(32*32*4);
+      this.readPixels(x,y,32,32,this.RGBA,this.UNSIGNED_BYTE,pixels);
+      for(let n=0;n<pixels.length;n+=4){
+        if(pixels[n]>20||pixels[n+1]>20||pixels[n+2]>20){
+          (window as any).__gpuRadarPainted++;break;
+        }
+      }
+    };
+  });
+  await mockRadar(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#headerLayouts button[data-panels="2"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
+  const renderer=await page.locator('#panelGrid').getAttribute('data-renderer');
+  if(renderer==='gpu'){
+    await expect.poll(()=>page.evaluate(()=>(window as any).__gpuRadarPainted as number),
+      {timeout:15000}).toBeGreaterThan(0);
+  }
+});
