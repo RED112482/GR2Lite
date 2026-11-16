@@ -189,6 +189,7 @@ export class PolarRadarLayer {
     this.radarXY=[center.x,center.y];
     this.scale=40075016.686*Math.cos(lat*Math.PI/180);
     if(this.gl)this.uploadFrame();
+    this.lastUploadMs=performance.now()-uploadStart;
     this.map?.triggerRepaint();
   }
   setPalette(style:string){this.paletteStyle=style;if(this.gl&&this.frame)this.uploadPalette();this.map?.triggerRepaint();}
