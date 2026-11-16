@@ -14,6 +14,7 @@ from .models import Moment
 from .live import RadarStore, LiveArchivePoller
 from .chunks import IncrementalChunkPoller
 from .backfill import HourBackfill
+from .tilt_index import build_tilt_index
 
 app = FastAPI(title="GR2Lite Archive API", version="0.1.0")
 # Public cloud hosting needs explicit origin allowlisting; no wildcard credentials.
@@ -37,6 +38,14 @@ def _all_volumes() -> list[DecodedVolume]:
 
 def _get_volume(volume_id: str) -> DecodedVolume | None:
     return LIVE_STORE.get(volume_id) if LIVE_STORE.mode in ("live","chunks") else CACHE.get(volume_id)
+
+@app.get("/radar/tilts")
+def radar_tilts():
+    """Coherent latest-available elevations across current and prior scan."""
+    if LIVE_STORE.mode in ("live","chunks"):
+        return build_tilt_index(LIVE_STORE.list())
+    return build_tilt_index(list(CACHE.values()))
+
 
 @app.get("/radar/status")
 def radar_status():
