@@ -93,8 +93,9 @@ export class PolarRadarLayer {
   private visible=true;
   setVisible(visible:boolean){this.visible=visible;this.map?.triggerRepaint();}
   private lastDataKey='';
-  private gpuWidth=0;
-  private gpuHeight=0;
+  private gpuCache=new Map<string,{gate:WebGLTexture;lookup:WebGLTexture;lookupData:Float32Array;bytes:number}>();
+  private gpuBytes=0;
+  private readonly maxGpuBytes=96*1024*1024;
   onGpuStatus?: (status: string) => void;
   private firstDrawNotified=false;
   private gpuFailed=false;
@@ -121,7 +122,7 @@ export class PolarRadarLayer {
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
     gl.bindVertexArray(null);
-    this.gateTexture=texture(gl);this.lookupTexture=texture(gl);this.paletteTexture=texture(gl);
+    this.paletteTexture=texture(gl);
     if(this.frame)this.uploadFrame();
   }
 
@@ -140,17 +141,33 @@ export class PolarRadarLayer {
     this.frame=frame;
     this.firstDrawNotified=false;
     this.gpuFailed=false;
-    this.lookup.fill(0);
-    // Index all azimuth bins. Nearest rays across gaps > 0.8 deg are rejected.
-    for(let bin=0;bin<3600;bin++){
-      const bearing=(bin+0.5)/10;
-      let best=-1,delta=Infinity;
-      for(let i=0;i<frame.sweep.azimuth_deg.length;i++){
-        const az=frame.sweep.azimuth_deg[i];
-        const d=Math.abs(((az-bearing+540)%360)-180);
-        if(d<delta){delta=d;best=i;}
+    const previous=this.gpuCache.get(identity);
+    if(previous&&this.gl){
+      this.gpuCache.delete(identity);this.gpuCache.set(identity,previous);
+      this.gateTexture=previous.gate;
+      this.lookupTexture=previous.lookup;
+      this.lookup=previous.lookupData;
+      this.uploadGeometry();
+      this.uploadPalette();
+      this.map?.triggerRepaint();
+      return;
+    }
+    // O(rays * 19) instead of O(rays * 3600) nearest-azimuth search.
+    this.lookup=new Float32Array(3600);
+    const errors=new Float32Array(3600).fill(Infinity);
+    for(let i=0;i<frame.sweep.azimuth_deg.length;i++){
+      const az=frame.sweep.azimuth_deg[i];
+      if(!Number.isFinite(az))continue;
+      const base=Math.round(az*10);
+      for(let step=-9;step<=9;step++){
+        const idx=((base+step)%3600+3600)%3600;
+        const bearing=(idx+0.5)/10;
+        const delta=Math.abs(((az-bearing+540)%360)-180);
+        if(delta<=0.8 && delta<errors[idx]){
+          errors[idx]=delta;
+          this.lookup[idx]=i+1;
+        }
       }
-      if(delta<=0.8&&best>=0)this.lookup[bin]=best+1;
     }
     const lat=frame.volume.radar_lat,lon=frame.volume.radar_lon;
     const center=maplibregl.MercatorCoordinate.fromLngLat([lon,lat]);
@@ -169,13 +186,11 @@ export class PolarRadarLayer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,256,1,0,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
   }
-  private uploadFrame(){
+  private uploadGeometry(){
     const gl=this.gl!,frame=this.frame!;
     if(!this.vertexBuffer)return;
-    if(frame.descriptor.gates>gl.getParameter(gl.MAX_TEXTURE_SIZE)||frame.descriptor.rays>gl.getParameter(gl.MAX_TEXTURE_SIZE)){
-      throw new Error('This radar sweep exceeds the GPU maximum texture dimensions');
-    }
-    const maxM=frame.descriptor.first_gate_m+(frame.descriptor.gates-0.5)*frame.descriptor.gate_spacing_m;
+    const maxM=frame.descriptor.first_gate_m+
+      (frame.descriptor.gates-0.5)*frame.descriptor.gate_spacing_m;
     const latD=maxM/111320;
     const lonD=maxM/(111320*Math.max(0.05,Math.cos(frame.volume.radar_lat*Math.PI/180)));
     const lon=frame.volume.radar_lon,lat=frame.volume.radar_lat;
@@ -183,25 +198,42 @@ export class PolarRadarLayer {
     const ne=maplibregl.MercatorCoordinate.fromLngLat([lon+lonD,lat+latD]);
     const box=new Float32Array([sw.x,sw.y,ne.x,sw.y,sw.x,ne.y,ne.x,ne.y]);
     gl.bindBuffer(gl.ARRAY_BUFFER,this.vertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER,box,gl.STATIC_DRAW);
-    setupNearest(gl,this.gateTexture!,0);
+    gl.bufferData(gl.ARRAY_BUFFER,box,gl.DYNAMIC_DRAW);
+  }
+  private uploadFrame(){
+    const gl=this.gl!,frame=this.frame!;
+    const maxSize=gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    if(frame.descriptor.gates>maxSize||frame.descriptor.rays>maxSize)
+      throw new Error('Radar sweep exceeds maximum GPU texture size');
+    this.uploadGeometry();
+    const gate=texture(gl),lookup=texture(gl);
+    this.gateTexture=gate;this.lookupTexture=lookup;
+    setupNearest(gl,gate,0);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
-    if(this.gpuWidth===frame.descriptor.gates && this.gpuHeight===frame.descriptor.rays){
-      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,frame.descriptor.gates,frame.descriptor.rays,gl.RED,gl.FLOAT,frame.values);
-    }else{
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,frame.descriptor.gates,frame.descriptor.rays,0,gl.RED,gl.FLOAT,frame.values);
-      this.gpuWidth=frame.descriptor.gates;
-      this.gpuHeight=frame.descriptor.rays;
-    }
-    setupNearest(gl,this.lookupTexture!,1);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,frame.descriptor.gates,
+      frame.descriptor.rays,0,gl.RED,gl.FLOAT,frame.values);
+    setupNearest(gl,lookup,1);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,3600,1,0,gl.RED,gl.FLOAT,this.lookup);
     this.uploadPalette();
-    const error = gl.getError();
-    if (error !== gl.NO_ERROR) {
-      throw new Error('WebGL texture upload failed with GL error 0x'+error.toString(16));
+    const error=gl.getError();
+    if(error!==gl.NO_ERROR){
+      gl.deleteTexture(gate);gl.deleteTexture(lookup);
+      throw new Error('WebGL texture upload error 0x'+error.toString(16));
+    }
+    const bytes=frame.values.byteLength+this.lookup.byteLength;
+    this.gpuCache.set(this.lastDataKey,{gate,lookup,lookupData:this.lookup,bytes});
+    this.gpuBytes+=bytes;
+    // Evict old frames; never remove the currently bound textures.
+    while((this.gpuBytes>this.maxGpuBytes||this.gpuCache.size>10)
+          &&this.gpuCache.size>1){
+      const [oldKey,oldEntry]=this.gpuCache.entries().next().value!;
+      if(oldKey===this.lastDataKey)break;
+      this.gpuCache.delete(oldKey);this.gpuBytes-=oldEntry.bytes;
+      gl.deleteTexture(oldEntry.gate);gl.deleteTexture(oldEntry.lookup);
     }
     this.map?.triggerRepaint();
   }
+
   render(context: WebGLRenderingContext | WebGL2RenderingContext, options: maplibregl.CustomRenderMethodInput){
     if (!(context instanceof WebGL2RenderingContext)) return;
     const gl=context;
@@ -263,13 +295,16 @@ export class PolarRadarLayer {
     return {value,rangeM,azimuth,ray,gate};
   }
   onRemove(_:maplibregl.Map,gl:WebGL2RenderingContext){
-    if(this.gateTexture)gl.deleteTexture(this.gateTexture);
-    if(this.lookupTexture)gl.deleteTexture(this.lookupTexture);
+    for(const item of this.gpuCache.values()){
+      gl.deleteTexture(item.gate);gl.deleteTexture(item.lookup);
+    }
+    this.gpuCache.clear();
+    this.gpuBytes=0;
     if(this.paletteTexture)gl.deleteTexture(this.paletteTexture);
     if(this.vertexBuffer)gl.deleteBuffer(this.vertexBuffer);
     if(this.vao)gl.deleteVertexArray(this.vao);
     if(this.program)gl.deleteProgram(this.program);
     this.gl=undefined;
-    this.gpuWidth=0;this.gpuHeight=0;this.lastDataKey='';
+    this.lastDataKey='';
   }
 }
