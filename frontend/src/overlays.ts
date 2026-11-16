@@ -1,4 +1,5 @@
 import type maplibregl from 'maplibre-gl';
+import {getBoundary} from './boundaryData';
 
 type Kind = 'states' | 'counties' | 'cwa';
 const config: Record<Kind, {layer:string; color:string; width:number; checkbox:string}> = {
@@ -27,10 +28,7 @@ export async function installBoundaries(map:maplibregl.Map,root:string):Promise<
   for(const kind of allKinds){
     const configItem=config[kind];
     try{
-      const response=await fetch(root.replace(/\/$/,'')+'/boundaries/'+kind);
-      if(!response.ok)throw new Error('HTTP '+response.status);
-      const data=await response.json();
-      if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('Invalid GeoJSON');
+      const data=await getBoundary(root,kind);
       if(!map.getSource(configItem.layer)){
         map.addSource(configItem.layer,{type:'geojson',data});
         map.addLayer({
