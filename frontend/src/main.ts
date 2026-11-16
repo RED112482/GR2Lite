@@ -361,7 +361,7 @@ async function syncRadar(initial=false){
       : 'Archived volume • automatic updates disabled';
     // Small, independent request; the rail updates without blocking frame loading.
     void fetchTiltIndex(root).then(index=>{
-      if(apiInput.value.trim().replace(/\\/$/,'')!==root)return;
+      if(apiInput.value.trim().replace(/\/$/,'')!==root)return;
       rollingTilts=index;
       updateScanningStrip();
     }).catch(e=>console.warn('Volume-aware tilt index unavailable:',e));
