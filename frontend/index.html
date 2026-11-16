@@ -18,6 +18,19 @@
     </div>
     <span id="status" class="status">CONNECTING</span>
   </header>
+  <section class="scan-strip" aria-label="KMOB live scanning progress">
+    <div class="scan-strip-title">
+      <span class="scan-strip-pulse"></span>
+      <strong>RADAR SCAN</strong>
+      <small id="stripProgress">WAITING FOR SCANS</small>
+    </div>
+    <div id="scanTilts" class="scan-tilts" role="group" aria-label="Received elevation angles"></div>
+    <div class="scan-strip-config" aria-label="Radar strategy">
+      <span id="stripVcp" class="scan-config">VCP —</span>
+      <span id="stripStrategy" class="scan-config" title="Observed supplemental strategy">STRATEGY —</span>
+      <span id="stripAvset" class="scan-config scan-config-unknown" title="AVSET verification pending">AVSET —</span>
+    </div>
+  </section>
   <div class="layout">
     <aside class="sidebar">
       <div class="section"><div class="section-title">SOURCE</div>
