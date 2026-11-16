@@ -147,6 +147,7 @@ export class PanelManager {
               private onSelected:(tile:Tile)=>void,
               private onLayoutChange:(count:Count)=>void){
     this.gpu=new PanelGpu(this.grid,this.map);
+    this.gpu.onFailure=()=>this.schedule();
     map.on('move',()=>this.gpu.schedule());
     map.on('moveend',()=>this.refreshViewport());
     this.grid.addEventListener('wheel',e=>{
