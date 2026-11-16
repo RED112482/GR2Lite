@@ -12,6 +12,7 @@ from .decoder import DecodedVolume, decode_archive
 from .models import Moment
 from .live import RadarStore, LiveArchivePoller
 from .chunks import IncrementalChunkPoller
+from .backfill import HourBackfill
 
 app = FastAPI(title="GR2Lite Archive API", version="0.1.0")
 # Public cloud hosting needs explicit origin allowlisting; no wildcard credentials.
@@ -28,6 +29,7 @@ app.add_middleware(
 CACHE: dict[str, DecodedVolume] = {}
 LIVE_STORE = RadarStore(limit=int(os.environ.get("GR2LITE_HISTORY_VOLUMES", "2")))
 LIVE_POLLER: LiveArchivePoller | None = None
+BACKFILL: HourBackfill | None = None
 
 def _all_volumes() -> list[DecodedVolume]:
     return LIVE_STORE.list() if LIVE_STORE.mode in ("live","chunks") else list(CACHE.values())
@@ -176,7 +178,7 @@ archive = os.environ.get("GR2LITE_ARCHIVE_PATH")
 
 @app.on_event("startup")
 def start_ingestion():
-    global LIVE_POLLER
+    global LIVE_POLLER, BACKFILL
     mode=os.environ.get("GR2LITE_MODE","archive").lower()
     if mode == "chunks":
         LIVE_STORE.mode="chunks"
@@ -184,6 +186,9 @@ def start_ingestion():
             LIVE_STORE,interval=float(os.environ.get("GR2LITE_CHUNK_POLL_SECONDS","12"))
         )
         LIVE_POLLER.start()
+        if LIVE_STORE.disk and os.environ.get("GR2LITE_BACKFILL","1")=="1":
+            BACKFILL=HourBackfill(LIVE_STORE.disk)
+            BACKFILL.start()
     elif mode == "live":
         LIVE_STORE.mode = "live"
         LIVE_POLLER = LiveArchivePoller(
@@ -197,3 +202,7 @@ def start_ingestion():
 def stop_ingestion():
     if LIVE_POLLER is not None:
         LIVE_POLLER.stop()
+    if BACKFILL is not None:
+        BACKFILL.stop()
+    if LIVE_STORE.disk is not None:
+        LIVE_STORE.disk.close()
