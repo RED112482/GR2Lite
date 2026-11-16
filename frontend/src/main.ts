@@ -8,6 +8,8 @@ import {installBoundaries} from './overlays';
 import {PanelManager} from './panels';
 import {valueFactor} from './palettes';
 import {renderScanStrip} from './scanStrip';
+import {fetchTiltIndex} from './tiltIndex';
+import type {TiltIndex} from './tiltIndex';
 
 const el=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const apiInput=el<HTMLInputElement>('apiRoot');
@@ -42,6 +44,7 @@ map.once('load',()=>{try{map.addLayer(radar);}catch(e){showError(e);}});
 map.on('error',e=>console.warn('Map tile or renderer warning',e.error));
 let volume:VolumeDescriptor|undefined;
 let latestScanVolume:VolumeDescriptor|undefined;
+let rollingTilts:TiltIndex|undefined;
 let moment:Moment='REF';
 let sweep:SweepDescriptor|undefined;
 let current:RadaFrameAlias|undefined;
@@ -121,33 +124,55 @@ async function descriptorFor(id:string):Promise<VolumeDescriptor>{
   while(descriptorCache.size>5)descriptorCache.delete(descriptorCache.keys().next().value!);
   return v;
 }
-function updateScanningStrip(){
-  // Always track the latest ingested scan even while viewing older loop frames.
-  const chosen=latestScanVolume??volume;
-  const selected=chosen?.volume_id===volume?.volume_id?sweep?.id:undefined;
-  renderScanStrip(chosen,selected,(angle)=>{
+/** Elevation navigation uses the freshest available cut per angle, even
+ * when the current partial volume hasn't reached that elevation yet.
+ */
+async function selectIndexedTilt(angle:number){
+  const currentIndex=rollingTilts;
+  const target=currentIndex?.tilts.find(t=>Math.abs(t.angle-angle)<0.16);
+  const source=target?.moments[moment]??
+    (target?Object.values(target.moments).find(Boolean):undefined);
+  if(!source){
+    // Standalone archive mode still supports its historical single-volume rail.
+    const chosen=latestScanVolume??volume;
     if(!chosen)return;
-    void (async()=>{
-      if(volume?.volume_id!==chosen.volume_id){
-        stopPlayback();
-        el<HTMLInputElement>('followLive').checked=true;
-        await chooseVolume(chosen,false);
-      }
-      if(panelManager.count!==1){
-        if(panelManager.count===16)panelManager.selectAngle(angle);
-        else panelManager.setElevation(angle);
-        return;
-      }
-      const candidates=chosen.sweeps.filter(s=>s.moments[moment]);
-      const matching=candidates.filter(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
-      if(!matching.length)return;
-      // Repeated SAILS/MRLE elevations should select the most recent cut.
-      sweep=matching.reduce((best,s)=>Date.parse(s.time_utc[s.time_utc.length-1])>
-        Date.parse(best.time_utc[best.time_utc.length-1])?s:best);
-      renderTiltOptions();
-      await loadFrame();
-    })().catch(showError);
-  });
+    const candidates=chosen.sweeps.filter(s=>s.moments[moment]&&Math.abs(s.fixed_angle_deg-angle)<0.16);
+    if(!candidates.length)return;
+    const s=candidates.reduce((a,b)=>Date.parse(b.time_utc[b.time_utc.length-1])>
+      Date.parse(a.time_utc[a.time_utc.length-1])?b:a);
+    if(volume?.volume_id!==chosen.volume_id)await chooseVolume(chosen,false,s.id);
+    else{sweep=s;renderTiltOptions();await loadFrame();}
+    return;
+  }
+  if(panelManager.count===16){
+    panelManager.selectAngle(angle);
+    return;
+  }
+  if(panelManager.count!==1&&source.volume_id===volume?.volume_id){
+    panelManager.setElevation(angle);
+    return;
+  }
+  // Crossing a volume boundary should not be treated as moving backward
+  // through the time loop; it is still the freshest available angle.
+  if(!source.current)el<HTMLInputElement>('followLive').checked=false;
+  stopPlayback();
+  const targetVolume=await descriptorFor(source.volume_id);
+  const selected=targetVolume.sweeps.find(s=>s.id===source.sweep_id);
+  if(!selected)return;
+  const requestedMoment=selected.moments[moment]?moment:
+    (Object.keys(selected.moments)[0] as Moment);
+  moment=requestedMoment;
+  if(volume?.volume_id===targetVolume.volume_id){
+    sweep=selected;renderTiltOptions();await loadFrame();
+  }else{
+    await chooseVolume(targetVolume,false,selected.id);
+  }
+}
+function updateScanningStrip(){
+  const chosen=latestScanVolume??volume;
+  renderScanStrip(chosen,sweep?.id,angle=>{
+    void selectIndexedTilt(angle).catch(showError);
+  },rollingTilts,volume?.volume_id);
 }
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
 function setMoments(){
@@ -284,7 +309,7 @@ function currentHistory(){
     'History '+historyCoverage.toFixed(0)+' / 60 min';
 }
 
-async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
+async function chooseVolume(selected:VolumeDescriptor,initial:boolean,preferredSweepId?:string){
   const oldMoment=moment,oldAngle=sweep?.fixed_angle_deg;
   const previousRadar=volume?.radar_id;
   volume=selected;
@@ -296,8 +321,9 @@ async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
   moment=supported.includes(oldMoment)?oldMoment:(supported.includes('REF')?'REF':supported[0]);
   if(!moment)throw new Error('Volume contains no supported radar moments');
   const candidates=selected.sweeps.filter(s=>s.moments[moment]);
-  sweep=oldAngle===undefined||initial?candidates[0]
-    :candidates.reduce((best,s)=>Math.abs(s.fixed_angle_deg-oldAngle)<Math.abs(best.fixed_angle_deg-oldAngle)?s:best,candidates[0]);
+  sweep=(preferredSweepId?candidates.find(s=>s.id===preferredSweepId):undefined)
+    ??(oldAngle===undefined||initial?candidates[0]
+    :candidates.reduce((best,s)=>Math.abs(s.fixed_angle_deg-oldAngle)<Math.abs(best.fixed_angle_deg-oldAngle)?s:best,candidates[0]));
   if(!sweep)throw new Error('No radar elevation for '+moment);
   if(initial||previousRadar!==selected.radar_id){
     map.jumpTo({center:[selected.radar_lon,selected.radar_lat],zoom:7,bearing:0,pitch:0});
@@ -333,6 +359,12 @@ async function syncRadar(initial=false){
         (info.mode==='chunks'?' • '+(info.chunk_count??0)+' chunks, '+(info.complete_sweeps??0)+' cuts':'')+
         (info.last_error?' • last update error: '+info.last_error:'')
       : 'Archived volume • automatic updates disabled';
+    // Small, independent request; the rail updates without blocking frame loading.
+    void fetchTiltIndex(root).then(index=>{
+      if(apiInput.value.trim().replace(/\\/$/,'')!==root)return;
+      rollingTilts=index;
+      updateScanningStrip();
+    }).catch(e=>console.warn('Volume-aware tilt index unavailable:',e));
     const list=await fetchVolumeIndex(root);
     availableVolumes=list;
     historyCoverage=Number(info.history_minutes_available??0);
@@ -391,6 +423,7 @@ async function connect(){
   scanStats.clear();
   descriptorCache.clear();
   latestScanVolume=undefined;
+  rollingTilts=undefined;
   updateScanningStrip();
   boundariesLoaded=false;
   clearError();setStatus('CONNECTING');
@@ -560,11 +593,23 @@ window.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp'||e.key==='ArrowDown'){
     e.preventDefault();
     if(panelManager.count===16)return;
+    // Use the complete rolling elevation rail, rather than the few cuts
+    // received so far in the most recent partial volume.
+    if(rollingTilts?.tilts.length){
+      const options=rollingTilts.tilts.filter(t=>Boolean(t.moments[moment]))
+        .map(t=>t.angle).sort((a,b)=>a-b);
+      const angle=sweep?.fixed_angle_deg??-1;
+      const next=e.key==='ArrowUp'
+        ?options.find(a=>a>angle+0.16)
+        :[...options].reverse().find(a=>a<angle-0.16);
+      if(next!==undefined)void selectIndexedTilt(next).catch(showError);
+      return;
+    }
     if(panelManager.count!==1){
       panelManager.stepElevation(e.key==='ArrowUp'?1:-1);
       return;
     }
-    // Strictly move to a greater/lower *elevation angle*: skip split-cut duplicates.
+    // Offline archive fallback: strict elevation order.
     const cuts=[...(volume?.sweeps.filter(s=>s.moments[moment])??[])]
       .sort((a,b)=>a.fixed_angle_deg-b.fixed_angle_deg);
     const angle=sweep?.fixed_angle_deg??-1;
