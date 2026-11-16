@@ -174,6 +174,9 @@ export class PanelManager {
   private structure='';
   private boundariesRequested=false;
   private lightOutlines:Segments=[];
+  private fastOutlines:Segments=[];
+  private fastLightOutlines:Segments=[];
+  private redrawOutlinesTimer=0;
   private generation=0;
   private timer=0;
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
@@ -185,20 +188,43 @@ export class PanelManager {
     this.gpu=new PanelGpu(this.grid,this.map);
     this.gpu.onFailure=()=>this.schedule();
     map.on('move',()=>this.gpu.schedule());
-    map.on('moveend',()=>this.refreshViewport());
+    map.on('moveend',()=>{
+      window.clearTimeout(this.redrawOutlinesTimer);
+      this.redrawOutlinesTimer=window.setTimeout(()=>this.refreshViewport(),90);
+    });
     this.grid.addEventListener('wheel',e=>{
       e.preventDefault();
       this.map.zoomTo(Math.max(2,Math.min(14,this.map.getZoom()+(e.deltaY<0?0.4:-0.4))),{duration:0});
     },{passive:false});
-    let pointer:{x:number;y:number}|null=null;
-    this.grid.addEventListener('pointerdown',e=>{pointer={x:e.clientX,y:e.clientY};});
-    this.grid.addEventListener('pointerup',e=>{
-      if(pointer){
-        const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
-        if(Math.abs(dx)+Math.abs(dy)>6)this.map.panBy([-dx,-dy],{duration:0});
-      }
-      pointer=null;
+    let pointer:{x:number;y:number;lastX:number;lastY:number;dragging:boolean}|null=null;
+    let deltaX=0,deltaY=0,panFrame=0;
+    const flushPan=()=>{
+      panFrame=0;
+      const dx=deltaX,dy=deltaY;deltaX=0;deltaY=0;
+      if(dx||dy)this.map.panBy([-dx,-dy],{duration:0});
+    };
+    this.grid.addEventListener('pointerdown',e=>{
+      if(e.button!==0)return;
+      pointer={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,dragging:false};
     });
+    this.grid.addEventListener('pointermove',e=>{
+      if(!pointer)return;
+      if(!pointer.dragging&&Math.hypot(e.clientX-pointer.x,e.clientY-pointer.y)>5)
+        pointer.dragging=true;
+      if(pointer.dragging){
+        deltaX+=e.clientX-pointer.lastX;
+        deltaY+=e.clientY-pointer.lastY;
+        if(!panFrame)panFrame=requestAnimationFrame(flushPan);
+      }
+      pointer.lastX=e.clientX;pointer.lastY=e.clientY;
+    });
+    const finishPan=()=>{
+      if(panFrame){cancelAnimationFrame(panFrame);flushPan();}
+      pointer=null;
+    };
+    this.grid.addEventListener('pointerup',finishPan);
+    this.grid.addEventListener('pointercancel',finishPan);
+    this.grid.addEventListener('pointerleave',finishPan);
   }
   setRollingIndex(index:TiltIndex){
     const signature=[index.volume_id,index.previous_volume_id,
@@ -216,7 +242,7 @@ export class PanelManager {
     if(this.count===1)return;
     this.gpu.schedule();
     if(this.gpu.ready){
-      const lines=this.count===16?this.lightOutlines:this.segments;
+      const lines=this.count===16?this.fastLightOutlines:this.fastOutlines;
       for(const item of this.rendered)drawOutlines(item.canvas,this.map,lines);
     }else this.schedule();
   }
@@ -243,6 +269,12 @@ export class PanelManager {
       }catch(e){console.warn('Panel boundary fetch failed:',kind,e);}
     }
     this.lightOutlines=this.segments.filter(s=>s.color!=='#697e91');
+    // Project once on ingest, not on every drag/map event.
+    this.fastOutlines=this.segments.map(shape=>({
+      color:shape.color,
+      lines:shape.lines.map(line=>line.map(pair=>projection(pair[0],pair[1])))
+    }));
+    this.fastLightOutlines=this.fastOutlines.filter(s=>s.color!=='#697e91');
     outlinesCache.clear();
     this.refreshViewport();
   }
@@ -481,6 +513,7 @@ export class PanelManager {
     const needed:TileCell[]=[];
     const gpuJobs:PanelDraw[]=[];
     const outlines=this.count===16?this.lightOutlines:this.segments;
+    const gpuOutlines=this.count===16?this.fastLightOutlines:this.fastOutlines;
     for(let i=0;i<tiles.length;i++){
       const tile=tiles[i],cell=this.cells[i];
       cell.tile=tile;
@@ -500,7 +533,7 @@ export class PanelManager {
       // actual radar source hasn't changed. No full-grid teardown.
       if(cell.key===key&&cell.frame){
         if(!this.gpu.ready)drawFrame(cell.canvas,cell.frame,this.map,outlines);
-        else {drawOutlines(cell.canvas,this.map,outlines);gpuJobs.push({canvas:cell.canvas,frame:cell.frame});}
+        else {drawOutlines(cell.canvas,this.map,gpuOutlines);gpuJobs.push({canvas:cell.canvas,frame:cell.frame});}
         continue;
       }
       cell.key=key;cell.frame=undefined;
