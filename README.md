@@ -183,7 +183,7 @@ The sidebar's **LIVE PERFORMANCE** section separates these measurements:
 - **Decode / publish (ms):** xradar assembly/decoding, followed by atomic
   publishing of a usable sweep snapshot.
 - **Gate transfer (ms):** browser `fetch` plus binary response read; shows
-  the original fetch duration when a frame comes from the browser cache.
+  **CACHED** when gate arrays are reused from browser memory.
 - **GPU upload (ms):** synchronous WebGL texture preparation/submission time,
   with **cached** shown for repeated frames. It is not asynchronous GPU
   execution/completion time.
