@@ -25,6 +25,8 @@ export interface VolumeDescriptor {
   volume_id: string;
   radar_id: string;
   vcp?: string|null;
+  dynamic_scan_type?: string|null;
+  avset_enabled?: boolean|null;
   volume_complete?: boolean;
   radar_lat: number;
   radar_lon: number;
