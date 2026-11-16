@@ -187,3 +187,30 @@ test('latest-volume elevation strip includes previous complete upper tilts and a
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('#angleLabel')).toContainText('1.50');
 });
+
+test('multi-panel GPU uses one shared surface while independent controls still work',async({page})=>{
+  await mockRadar(page);
+  const errors:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#headerLayouts button[data-panels="4"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(4);
+  await expect(page.locator('#panelGrid .panel-gpu-surface')).toHaveCount(1);
+  await expect(page.locator('#panelGrid .panel-caption').first()).not.toContainText('loading',{timeout:15000});
+  const ready=await page.locator('#panelGrid').getAttribute('data-renderer');
+  expect(['gpu','cpu']).toContain(ready);
+  if(ready==='gpu'){
+    const context=await page.locator('#panelGrid .panel-gpu-surface')
+      .evaluate((canvas:HTMLCanvasElement)=>Boolean(canvas.getContext('webgl2')));
+    expect(context).toBe(true);
+    await expect(page.locator('#panelSelection')).toContainText('GPU');
+  }
+  await page.locator('#panelGrid .panel-tile').nth(1).click();
+  await page.locator('#moments button').getByText('REF',{exact:true}).click();
+  await expect(page.locator('#panelGrid .panel-caption').nth(1)).toContainText('REF');
+  await page.locator('#headerLayouts button[data-panels="16"]').click();
+  await expect(page.locator('#panelGrid .panel-gpu-surface')).toHaveCount(1);
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
+  expect(errors).toEqual([]);
+});
