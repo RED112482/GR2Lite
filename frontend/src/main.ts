@@ -70,7 +70,7 @@ let panelManager:PanelManager;
 let syncing=false;
 let boundariesLoaded=false;
 panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),
-  s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,
+  s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame,descriptorFor,
   tile=>{moment=tile.moment;sweep=tile.sweep;setMoments();renderTiltOptions();updateScanningStrip();void loadFrame();},
   count=>radar.setVisible(count===1));
 document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
@@ -364,6 +364,7 @@ async function syncRadar(initial=false){
     void fetchTiltIndex(root).then(index=>{
       if(apiInput.value.trim().replace(/\/$/,'')!==root)return;
       rollingTilts=index;
+      panelManager.setRollingIndex(index);
       updateScanningStrip();
     }).catch(e=>console.warn('Volume-aware tilt index unavailable:',e));
     const list=await fetchVolumeIndex(root);
