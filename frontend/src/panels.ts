@@ -58,8 +58,8 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
   const mapSize=map.getContainer().getBoundingClientRect();
   const fullWorldPx=512*2**map.getZoom();
   // All panel views share one camera center and the same geographic footprint.
-  const geographicSpan=Math.max(mapSize.width,mapSize.height)/fullWorldPx;
-  const deltaX=geographicSpan/w,deltaY=geographicSpan/h;
+  const deltaX=rect.width/fullWorldPx/w;
+  const deltaY=rect.height/fullWorldPx/h;
   const [cx,cy]=projection(map.getCenter().lng,map.getCenter().lat);
   const [rx,ry]=projection(f.volume.radar_lon,f.volume.radar_lat);
   const scale=40075016.686*Math.cos(f.volume.radar_lat*Math.PI/180);
@@ -125,11 +125,10 @@ function drawOutlines(canvas:HTMLCanvasElement,map:maplibregl.Map,segments:Segme
   const painter=source.getContext('2d');
   if(!painter)return;
   painter.setTransform(ratio,0,0,ratio,0,0);
-  const mapSize=map.getContainer().getBoundingClientRect();
-  const sideSpan=Math.max(mapSize.width,mapSize.height)/(512*2**zoom);
   const [cx,cy]=projection(center.lng,center.lat);
-  // Every map plot is square, and the projected geographic span is square.
-  const pxPerWorld=rect.width/sideSpan;
+  // Native MapLibre zoom: one screen CSS pixel equals 1/(512*2^zoom)
+  // Mercator world units on BOTH axes. No axis-dependent distortion.
+  const pxPerWorld=512*2**zoom;
   for(const shape of segments){
    painter.strokeStyle=shape.color;painter.lineWidth=0.8;painter.beginPath();
    for(const line of shape.lines){
@@ -448,13 +447,12 @@ export class PanelManager {
           const rect=canvas.getBoundingClientRect();
           const xf=(event.clientX-rect.left)/rect.width;
           const yf=(event.clientY-rect.top)/rect.height;
-          const size=this.map.getContainer().getBoundingClientRect();
-          const span=Math.max(size.width,size.height)/(512*2**this.map.getZoom());
+          const zoomScale=512*2**this.map.getZoom();
           const [cx,cy]=projection(this.map.getCenter().lng,this.map.getCenter().lat);
           const [rx,ry]=projection(f.volume.radar_lon,f.volume.radar_lat);
           const scale=40075016.686*Math.cos(f.volume.radar_lat*Math.PI/180);
-          const east=(cx+(xf-0.5)*span-rx)*scale;
-          const north=(ry-cy-(yf-0.5)*span)*scale;
+          const east=(cx+(xf-0.5)*rect.width/zoomScale-rx)*scale;
+          const north=(ry-cy-(yf-0.5)*rect.height/zoomScale)*scale;
           const range=Math.hypot(east,north);
           const az=(Math.atan2(east,north)*180/Math.PI+360)%360;
           const lookup=lookupFor(f);
