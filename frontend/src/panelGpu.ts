@@ -3,6 +3,9 @@ import type {RadarFrame} from './radar';
 import {getPalette,palettePixels,valueFactor} from './palettes';
 
 export type PanelDraw={canvas:HTMLCanvasElement;frame:RadarFrame};
+export type BoundaryKind='states'|'counties'|'cwa';
+export type ProjectedBoundaries={kind:BoundaryKind;color:string;lines:number[][][]}[];
+type GpuBoundary={kind:BoundaryKind;buffer:WebGLBuffer;count:number;color:[number,number,number]};
 type Entry={gate:WebGLTexture;lookup:WebGLTexture;palette:WebGLTexture;bytes:number};
 const VERT=`#version 300 es
 void main() {
@@ -38,6 +41,23 @@ void main(){
  float part=clamp((value*u_factor-u_min)/max(0.001,u_max-u_min),0.0,1.0);
  color=vec4(texture(u_palette,vec2(part,0.5)).rgb,1);
 }`;
+// Draw outlines using the SAME scissored viewport and camera uniforms as
+// radar gates. No second CPU canvas to lag behind when the user drags.
+const LINE_VERT=`#version 300 es
+layout(location=0) in vec2 a_position;
+uniform vec2 u_origin;
+uniform vec2 u_camera;
+uniform vec2 u_span;
+void main(){
+ vec2 offset=a_position-(u_camera-u_origin);
+ gl_Position=vec4(2.0*offset.x/u_span.x,-2.0*offset.y/u_span.y,0.0,1.0);
+}`;
+const LINE_FRAG=`#version 300 es
+precision mediump float;
+uniform vec3 u_line_color;
+out vec4 color;
+void main(){color=vec4(u_line_color,1.0);}
+`;
 function shader(gl:WebGL2RenderingContext,type:number,src:string){
  const s=gl.createShader(type);if(!s)throw Error('Shader allocation failed');
  gl.shaderSource(s,src);gl.compileShader(s);
@@ -64,6 +84,13 @@ export class PanelGpu {
  private gl:WebGL2RenderingContext|null=null;
  private program:WebGLProgram|null=null;
  private vao:WebGLVertexArrayObject|null=null;
+ private lineProgram:WebGLProgram|null=null;
+ private lineVao:WebGLVertexArrayObject|null=null;
+ private lineData:GpuBoundary[]=[];
+ private lineOrigin:[number,number]=[0,0];
+ private outlines:ProjectedBoundaries=[];
+ private visibility:Record<BoundaryKind,boolean>={states:true,counties:true,cwa:true};
+ private lineUniforms=new Map<string,WebGLUniformLocation|null>();
  private cache=new Map<string,Entry>();
  private bytes=0;
  private pending=false;
@@ -83,7 +110,8 @@ export class PanelGpu {
   this.canvas.addEventListener('webglcontextlost',e=>{
    e.preventDefault();this.lost=true;this.gl=null;this.program=null;
    this.onFailure?.();
-   this.cache.clear();this.uniforms.clear();this.bytes=0;
+   this.cache.clear();this.uniforms.clear();this.lineData=[];this.lineProgram=null;
+   this.bytes=0;
   });
   this.canvas.addEventListener('webglcontextrestored',()=>{
    this.lost=false;this.initialize();this.onFailure?.();this.schedule();
@@ -103,6 +131,18 @@ export class PanelGpu {
    gl.attachShader(p,vs);gl.attachShader(p,fs);gl.linkProgram(p);
    gl.deleteShader(vs);gl.deleteShader(fs);
    if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p)||'Link error');
+   const lvs=shader(gl,gl.VERTEX_SHADER,LINE_VERT);
+   const lfs=shader(gl,gl.FRAGMENT_SHADER,LINE_FRAG);
+   const lines=gl.createProgram();if(!lines)throw Error('Line program allocation failed');
+   gl.attachShader(lines,lvs);gl.attachShader(lines,lfs);
+   gl.linkProgram(lines);gl.deleteShader(lvs);gl.deleteShader(lfs);
+   if(!gl.getProgramParameter(lines,gl.LINK_STATUS))
+     throw Error(gl.getProgramInfoLog(lines)||'Line shader link error');
+   this.lineProgram=lines;
+   this.lineVao=gl.createVertexArray();
+   this.lineUniforms.clear();
+   for(const name of ['u_origin','u_camera','u_span','u_line_color'])
+     this.lineUniforms.set(name,gl.getUniformLocation(lines,name));
    this.gl=gl;this.program=p;this.vao=gl.createVertexArray();
    this.failed=false;
    this.uniforms.clear();
@@ -150,6 +190,65 @@ export class PanelGpu {
    gl.deleteTexture(v.gate);gl.deleteTexture(v.lookup);gl.deleteTexture(v.palette);
   }
   return entry;
+ }
+ setBoundaries(shapes:ProjectedBoundaries){
+  this.outlines=shapes;
+  this.uploadOutlines();
+  this.schedule();
+ }
+ setBoundaryVisibility(visible:Record<BoundaryKind,boolean>){
+  this.visibility={...visible};
+  this.schedule();
+ }
+ private uploadOutlines(){
+  const gl=this.gl;
+  if(!gl||!this.lineProgram)return;
+  for(const item of this.lineData)gl.deleteBuffer(item.buffer);
+  this.lineData=[];
+  const first=this.outlines.flatMap(s=>s.lines).find(line=>line.length>=2);
+  this.lineOrigin=first?[first[0][0],first[0][1]]:[0,0];
+  const [ox,oy]=this.lineOrigin;
+  for(const shape of this.outlines){
+    const verts:number[]=[];
+    for(const line of shape.lines){
+      for(let i=1;i<line.length;i++){
+        const a=line[i-1],b=line[i];
+        if(!Number.isFinite(a[0]+a[1]+b[0]+b[1]))continue;
+        verts.push(a[0]-ox,a[1]-oy,b[0]-ox,b[1]-oy);
+      }
+    }
+    if(!verts.length)continue;
+    const buffer=gl.createBuffer();if(!buffer)continue;
+    gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.STATIC_DRAW);
+    const css=shape.color.replace('#','');
+    const color:[number,number,number]=[
+      parseInt(css.slice(0,2),16)/255,
+      parseInt(css.slice(2,4),16)/255,
+      parseInt(css.slice(4,6),16)/255
+    ];
+    this.lineData.push({kind:shape.kind,buffer,count:verts.length/2,color});
+  }
+ }
+ private drawLines(camera:maplibregl.MercatorCoordinate,spanX:number,spanY:number){
+  const gl=this.gl!,program=this.lineProgram;
+  if(!program||!this.lineData.length)return;
+  gl.useProgram(program);
+  gl.bindVertexArray(this.lineVao);
+  const u=(s:string)=>this.lineUniforms.get(s)??null;
+  gl.uniform2f(u('u_origin'),this.lineOrigin[0],this.lineOrigin[1]);
+  gl.uniform2f(u('u_camera'),camera.x,camera.y);
+  gl.uniform2f(u('u_span'),spanX,spanY);
+  for(const line of this.lineData){
+    if(!this.visibility[line.kind])continue;
+    gl.uniform3f(u('u_line_color'),...line.color);
+    gl.bindBuffer(gl.ARRAY_BUFFER,line.buffer);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.LINES,0,line.count);
+  }
+  gl.useProgram(this.program);
+  gl.bindVertexArray(this.vao);
  }
  setTiles(tiles:PanelDraw[]){this.tiles=tiles;this.schedule();}
  get drawMs(){return this.lastDrawMs;}
@@ -222,6 +321,7 @@ export class PanelGpu {
     }
     gl.viewport(x,y,tw,th);gl.scissor(x,y,tw,th);
     gl.drawArrays(gl.TRIANGLES,0,3);
+    this.drawLines(center,box.width*mercatorPerCssPixel,box.height*mercatorPerCssPixel);
    }catch(e){this.fail(e);return;}
   }
   gl.disable(gl.SCISSOR_TEST);
