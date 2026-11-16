@@ -67,6 +67,7 @@ export class PanelGpu {
  private cache=new Map<string,Entry>();
  private bytes=0;
  private pending=false;
+ private lastDrawMs=0;
  private tiles:PanelDraw[]=[];
  private lost=false;
  private failed=false;
@@ -149,6 +150,7 @@ export class PanelGpu {
   return entry;
  }
  setTiles(tiles:PanelDraw[]){this.tiles=tiles;this.schedule();}
+ get drawMs(){return this.lastDrawMs;}
  clear(){this.tiles=[];this.schedule();}
  schedule(){
   if(this.pending)return;
@@ -158,9 +160,11 @@ export class PanelGpu {
   });
  }
  private draw(){
+  const started=performance.now();
   const gl=this.gl,p=this.program;if(!gl||!p||this.lost)return;
   const outer=this.grid.getBoundingClientRect();if(outer.width<1||outer.height<1)return;
-  const ratio=Math.min(devicePixelRatio||1,1.5);
+  // Scale capped to protect the GPU; 16 views are still native-gate rendered.
+  const ratio=Math.min(devicePixelRatio||1,this.grid.dataset.panels==='16'?1:1.25);
   const w=Math.max(1,Math.round(outer.width*ratio)),h=Math.max(1,Math.round(outer.height*ratio));
   if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}
   gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);gl.disable(gl.SCISSOR_TEST);
@@ -169,8 +173,11 @@ export class PanelGpu {
   const u=(name:string)=>this.uniforms.get(name)??null;
   const center=maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter());
   const world=512*2**this.map.getZoom(),size=this.map.getContainer().getBoundingClientRect();
+  // All pane plots have 1:1 aspect and the same square geographic footprint.
+  // Radar beams remain circular regardless of 2/4/16 layout proportions.
+  const geographicSpan=Math.max(size.width,size.height)/world;
   gl.uniform2f(u('u_center'),center.x,center.y);
-  gl.uniform2f(u('u_span'),size.width/world,size.height/world);
+  gl.uniform2f(u('u_span'),geographicSpan,geographicSpan);
   gl.enable(gl.SCISSOR_TEST);
   for(const job of this.tiles){
    if(!job.canvas.isConnected)continue;
@@ -204,6 +211,7 @@ export class PanelGpu {
   gl.disable(gl.SCISSOR_TEST);
   const error=gl.getError();
   if(error!==gl.NO_ERROR)this.fail('WebGL error 0x'+error.toString(16));
+  else this.lastDrawMs=performance.now()-started;
  }
  private fail(reason:unknown){
   if(this.failed)return;
