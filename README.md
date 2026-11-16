@@ -170,3 +170,31 @@ whole-volume decoding with sweep-oriented incremental decoding and migrate the
 remaining Canvas2D panel previews to reusable GPU rendering. The target is
 smooth, predictable navigation without compromising the integrity of NEXRAD
 missing-data and range-folded gate handling.
+
+## Performance diagnostics (latency milestone)
+
+The sidebar's **LIVE PERFORMANCE** section separates these measurements:
+
+- **Latest ray age (seconds):** current client-observed `/radar/status` estimate
+  of elapsed time since the newest decoded radar radial. This is *not* AWS
+  publishing latency or guaranteed end-to-end delivery latency.
+- **Chunk discovery (ms):** elapsed time spent listing S3 chunk objects.
+- **Chunk download (ms):** elapsed time fetching newly discovered chunk bytes.
+- **Decode / publish (ms):** xradar assembly/decoding, followed by atomic
+  publishing of a usable sweep snapshot.
+- **Gate transfer (ms):** browser `fetch` plus binary response read; shows
+  the original fetch duration when a frame comes from the browser cache.
+- **GPU upload (ms):** synchronous WebGL texture preparation/submission time,
+  with **cached** shown for repeated frames. It is not asynchronous GPU
+  execution/completion time.
+- **Frame load (ms):** the duration of selecting and preparing a frame for
+  display (can include a network request). This is *not* a measured on-screen
+  presentation or FPS metric.
+
+The backend exposes the last **successful published chunk** timings under
+`latency_metrics` in `GET /radar/status`; timings stay associated with their
+`volume_id`, `measured_at_utc`, `new_chunks`, and `download_bytes`.
+Missing measurements are shown as —, never fabricated. Use these observations
+to choose between decoder optimization, network strategy, or GPU work. A
+more rigorous future benchmark should add frame presentation timestamps and
+percentile distributions across sustained live sessions.
