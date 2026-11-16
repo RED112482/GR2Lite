@@ -345,7 +345,7 @@ async function syncRadar(initial=false){
       chunk_count?:number;complete_sweeps?:number;
       age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
       history_minutes_available?:number;
-      latency_metrics?:{discovery_ms?:number;download_ms?:number;decode_ms?:number;publish_ms?:number};
+      latency_metrics?:{discovery_ms?:number;download_ms?:number;decode_ms?:number;publish_ms?:number;newly_decoded_sweeps?:number;reused_sweeps?:number};
     };
     feedMode=info.mode;feedState=info.state;feedSource=info.feed_source??info.mode;
     const metrics=info.latency_metrics;
@@ -353,6 +353,7 @@ async function syncRadar(initial=false){
     perfText('perfDiscovery',perfValue(metrics?.discovery_ms));
     perfText('perfDownload',perfValue(metrics?.download_ms));
     perfText('perfDecode',perfValue(metrics?.decode_ms)+(metrics?.publish_ms!==undefined?' / '+perfValue(metrics.publish_ms):''));
+    perfText('perfReuse',metrics?.newly_decoded_sweeps!==undefined?metrics.newly_decoded_sweeps+' / '+(metrics.reused_sweeps??0):'—');
     const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
     el<HTMLParagraphElement>('feedInfo').textContent=info.mode!=='archive'
       ? (info.mode==='chunks'?'Incremental chunks':'Completed volumes')+' • '+(info.feed_source??'feed')+' • latest ray '+age+' old'+
