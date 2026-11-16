@@ -129,3 +129,8 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
   .scan-strip-config{margin-left:auto}
 }
 @media(prefers-reduced-motion:reduce){.scan-tilt.newest{animation:none}}
+
+/* Performance measurements are diagnostic values, not source-health indicators. */
+.perf-indicator{font-size:8px;color:#9ac9e3;font-weight:500;margin-left:4px}
+.perf-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;font-size:11px;color:#a9bdcf}
+.perf-grid strong{font-variant-numeric:tabular-nums;color:#e4f4fa;font-weight:600;text-align:right}
