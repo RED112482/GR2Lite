@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import './style.css';
-import {fetchFrame,fetchVolumeIndex,fetchVolumeDescriptor,momentOrder,formatValue} from './radar';
+import {fetchFrame,fetchVolumeIndex,fetchVolumeDescriptor,momentOrder,formatValue,isNoData} from './radar';
 import type {Moment,RadarFrame,VolumeDescriptor,SweepDescriptor,VolumeIndexEntry} from './radar';
 import {PolarRadarLayer} from './radarLayer';
 import {getPalette,cssGradient} from './palettes';
@@ -160,7 +160,7 @@ async function loadFrame(){
       let echoes=m==='REF'?0:null;
       for(let j=0;j<frame.values.length;j++){
         const value=frame.values[j];
-        if(!Number.isFinite(value))continue;
+        if(isNoData(m,value,frame.descriptor.units))continue;
         count++;
         if(value>high){high=value;peak=j;}
         if(echoes!==null&&value>=5)echoes++;
@@ -392,7 +392,7 @@ el<HTMLButtonElement>('recenter').onclick=()=>map.easeTo({
 map.on('click',e=>{
   const f=current;if(!f)return;
   const hit=radar.sample(e.lngLat.lng,e.lngLat.lat);
-  el<HTMLDivElement>('gate').textContent=hit
+  el<HTMLDivElement>('gate').textContent=hit&&!isNoData(f.moment,hit.value,f.descriptor.units)
     ?'Value: '+formatValue(hit.value*valueFactor(f.moment,f.descriptor.units),getPalette(f.moment,'operational').unit)
       +'\nAzimuth: '+hit.azimuth.toFixed(2)+'°'
       +'\nSlant range (approx): '+(hit.rangeM/1000).toFixed(2)+' km'
