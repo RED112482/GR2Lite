@@ -9,6 +9,7 @@ export interface ScanStripState {
   avset:string;
   avsetTitle:string;
   progress:string;
+  latestLabel:string;
 }
 const angleClose=(a:number,b:number)=>Math.abs(a-b)<0.16;
 const timeMs=(s:SweepDescriptor)=>{
@@ -90,6 +91,7 @@ export function scanStripState(v:VolumeDescriptor,selectedId?:string):ScanStripS
       ?'NEXRAD RDA status Message 2 not available; AVSET setting unknown.'
       :'Reported NEXRAD RDA status Message 2: AVSET '+avset,
     progress:complete?'VOLUME COMPLETE':sweeps.length+' CUT'+(sweeps.length===1?'':'S')+' RECEIVED',
+    latestLabel:newest?'LATEST '+newest.fixed_angle_deg.toFixed(1)+'° • '+clock(newest):'LATEST —',
   };
 }
 export function renderScanStrip(
@@ -102,10 +104,11 @@ export function renderScanStrip(
   const mode=document.getElementById('stripStrategy');
   const avset=document.getElementById('stripAvset');
   const progress=document.getElementById('stripProgress');
-  if(!list||!vcp||!mode||!avset||!progress)return;
+  const latest=document.getElementById('stripLatest');
+  if(!list||!vcp||!mode||!avset||!progress||!latest)return;
   if(!v) {
     list.replaceChildren();vcp.textContent='VCP —';mode.textContent='STRATEGY —';
-    avset.textContent='AVSET —';progress.textContent='WAITING FOR SCANS';return;
+    avset.textContent='AVSET —';progress.textContent='WAITING FOR SCANS';latest.textContent='LATEST —';return;
   }
   const state=scanStripState(v,selectedId);
   const vcpNumber=state.vcp.match(/\b(?:vcp\s*)?(\d{2,3})\b/i);
@@ -116,6 +119,7 @@ export function renderScanStrip(
   avset.textContent='AVSET '+state.avset;
   avset.title=state.avsetTitle;
   progress.textContent=state.progress;
+  latest.textContent=state.latestLabel;
   const fragment=document.createDocumentFragment();
   for(const item of state.angles) {
     const b=document.createElement('button');
