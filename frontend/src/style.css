@@ -161,3 +161,33 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
 .panel-grid[data-renderer="gpu"] .panel-caption,
 .panel-grid[data-renderer="gpu"] .mini-colorbar{z-index:2}
 .panel-grid[data-renderer="gpu"] .panel-pagination{z-index:5}
+
+/* Fixed geographic geometry: panels occupy equal grid cells, but each
+ * radar plot stays a true square. No stretched velocity/reflectivity fields.
+ * Container query units let 16 equal square plots fit within a 4x4 matrix.
+ */
+.panel-grid {grid-auto-flow:row;align-content:stretch;justify-content:stretch}
+.panel-grid[data-panels="2"]{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:minmax(0,1fr)!important}
+.panel-grid[data-panels="4"]{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(2,minmax(0,1fr))!important}
+.panel-grid[data-panels="16"]{grid-template-columns:repeat(4,minmax(0,1fr))!important;grid-template-rows:repeat(4,minmax(0,1fr))!important}
+.panel-tile{container-type:size;min-width:0;min-height:0;isolation:isolate;background:#060c13}
+.panel-plot{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(100cqw,100cqh);height:min(100cqw,100cqh);aspect-ratio:1;
+  overflow:hidden;background:#000;z-index:1}
+.panel-tile .panel-plot canvas,
+.panel-grid[data-renderer="gpu"] .panel-tile .panel-plot canvas{
+  position:absolute;inset:0;width:100%;height:100%;display:block;
+  pointer-events:auto;background:transparent
+}
+.panel-grid[data-renderer="gpu"] .panel-plot{background:transparent}
+.panel-gpu-surface{z-index:0}
+.panel-tile.latest-sweep{border-color:#4cf2a0;
+  box-shadow:inset 0 0 0 2px #4cf2a0,0 0 11px #25e8978c}
+.panel-tile.latest-sweep::after{
+  content:"";position:absolute;inset:3px;border:2px solid #4cf2a0;
+  border-radius:5px;pointer-events:none;z-index:3
+}
+.panel-tile.active.latest-sweep{border-color:#7fc9ff}
+.panel-grid[data-panels="16"] .panel-caption{font-size:9px;padding:2px 4px;
+  max-width:calc(100% - 9px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(prefers-reduced-motion:no-preference){.panel-tile.latest-sweep::after{animation:scan-glow 3s ease-in-out infinite}}
