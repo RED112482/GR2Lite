@@ -137,6 +137,10 @@ export function renderScanStrip(
     b.className='scan-tilt'+(item.newest?' newest':'')+(item.selected?' selected':'')+(item.prior?' prior':'');
     b.dataset.source=item.prior?'previous':'current';
     b.textContent=item.angle.toFixed(1)+'°';
+    const stamp=document.createElement('span');
+    stamp.className='scan-chip-time';
+    stamp.textContent=item.time==='—'?'—':item.time.slice(0,5)+'Z';
+    b.append(stamp);
     b.title=item.angle.toFixed(2)+'° • '+(item.prior?'PREVIOUS COMPLETE VOLUME':'CURRENT VOLUME')+' • '+item.count+' current-volume cut(s) • latest '+item.time+
       (item.newest?' • NEWEST RECEIVED CUT':'');
     b.setAttribute('aria-label',b.title);
