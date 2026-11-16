@@ -509,6 +509,7 @@ export class PanelManager {
       cell.caption.textContent=tile.moment+' • '+tile.label+' • loading…';
       needed.push(cell);
     }
+    this.rendered=gpuJobs;
     this.gpu.setTiles(gpuJobs);
     let next=0;
     // 6 in-flight tiles while still bounded; matching gate requests are
@@ -538,7 +539,8 @@ export class PanelManager {
           if(this.gpu.ready){
             drawOutlines(cell.canvas,this.map,outlines);
             gpuJobs.push({canvas:cell.canvas,frame});
-            this.gpu.setTiles([...gpuJobs]);
+            this.rendered=[...gpuJobs];
+            this.gpu.setTiles(this.rendered);
           }else{
             drawFrame(cell.canvas,frame,this.map,outlines);
           }
