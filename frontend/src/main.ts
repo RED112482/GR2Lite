@@ -348,7 +348,7 @@ el<HTMLInputElement>('followLive').onchange=()=>{
   if(el<HTMLInputElement>('followLive').checked){stopPlayback();void syncRadar();}
 };
 // Only one status poll can run at a time; keep history and view stable.
-window.setInterval(()=>{void syncRadar();},12000);
+window.setInterval(()=>{void syncRadar();},5000);
 
 // Preload next time steps ahead of playback with a strict two-download limit.
 // A slow historical file must not monopolize all browser connections or RAM.
