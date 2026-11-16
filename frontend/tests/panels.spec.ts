@@ -15,7 +15,7 @@ const sweeps=[0.5,1.5].map((angle,i)=>({
 const descriptor={
   contract_version:'0.1.0',volume_id:'KMOB_TEST_VOLUME',
   radar_id:'KMOB',radar_lat:30.68,radar_lon:-88.24,radar_alt_m:70,
-  source:'archive',vcp:'35',volume_complete:true,sweeps
+  source:'archive',vcp:'35',dynamic_scan_type:'standard',avset_enabled:false,volume_complete:true,sweeps
 };
 async function mockRadar(page:Page,withHistory=false) {
   await page.route('**/api/**',async route=>{
@@ -103,8 +103,8 @@ test('scan strip reports received tilts, latest glow, VCP and honest strategy st
   await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
   await expect(page.locator('#scanTilts .scan-tilt')).toHaveCount(2);
   await expect(page.locator('#stripVcp')).toHaveText('VCP 35');
-  await expect(page.locator('#stripStrategy')).toHaveText('NONE OBSERVED');
-  await expect(page.locator('#stripAvset')).toHaveText('AVSET UNKNOWN');
+  await expect(page.locator('#stripStrategy')).toHaveText('NONE');
+  await expect(page.locator('#stripAvset')).toHaveText('AVSET OFF');
   await expect(page.locator('#scanTilts .scan-tilt.newest')).toContainText('1.5');
   await page.locator('#scanTilts .scan-tilt').first().click();
   await expect(page.locator('#angleLabel')).toContainText('0.50');
