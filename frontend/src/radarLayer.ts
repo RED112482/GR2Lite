@@ -90,6 +90,8 @@ export class PolarRadarLayer {
   private radarXY:[number,number]=[0,0];
   private scale=1;
   private frame?:RadarFrame;
+  private visible=true;
+  setVisible(visible:boolean){this.visible=visible;this.map?.triggerRepaint();}
   private lastDataKey='';
   private gpuWidth=0;
   private gpuHeight=0;
@@ -203,7 +205,7 @@ export class PolarRadarLayer {
   render(context: WebGLRenderingContext | WebGL2RenderingContext, options: maplibregl.CustomRenderMethodInput){
     if (!(context instanceof WebGL2RenderingContext)) return;
     const gl=context;
-    if(!this.frame||!this.program||!this.vao)return;
+    if(!this.visible||!this.frame||!this.program||!this.vao)return;
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
     const loc=(name:string)=>gl.getUniformLocation(this.program!,name);
