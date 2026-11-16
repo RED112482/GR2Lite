@@ -115,7 +115,8 @@ export class PanelManager {
   constructor(private map:maplibregl.Map,private grid:HTMLDivElement,
               private api:()=>string,private selectCut:(s:SweepDescriptor)=>void,
               private loadFrame:(volume:VolumeDescriptor,sweep:SweepDescriptor,moment:Moment)=>Promise<RadarFrame>,
-              private onSelected:(tile:Tile)=>void){
+              private onSelected:(tile:Tile)=>void,
+              private onLayoutChange:(count:Count)=>void){
     map.on('moveend',()=>this.schedule());
     this.grid.addEventListener('wheel',e=>{
       e.preventDefault();
@@ -158,7 +159,7 @@ export class PanelManager {
     this.schedule();
   }
   setCount(count:Count){
-    this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.schedule();
+    this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.onLayoutChange(count);this.schedule();
     const label=document.getElementById('panelSelection');if(label)label.textContent=this.selectionLabel();
     if(count>1)void this.loadBoundaries();
     document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(
