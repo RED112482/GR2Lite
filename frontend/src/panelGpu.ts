@@ -68,6 +68,8 @@ export class PanelGpu {
  private bytes=0;
  private pending=false;
  private lastDrawMs=0;
+ private lastDrawAt=0;
+ private drawNumber=0;
  private tiles:PanelDraw[]=[];
  private lost=false;
  private failed=false;
@@ -155,9 +157,22 @@ export class PanelGpu {
  schedule(){
   if(this.pending)return;
   this.pending=true;
-  requestAnimationFrame(()=>{this.pending=false;
-   if(this.grid.isConnected&&!this.grid.classList.contains('hidden'))this.draw();
-  });
+  const paint=(time:number)=>{
+   if(!this.grid.isConnected||this.grid.classList.contains('hidden')){
+     this.pending=false;return;
+   }
+   // Coalesce pointer-move events. At 16 panes, limit redraw to ~30 fps;
+   // native-gate textures stay resident, but fragment shader work is costly.
+   const minInterval=this.grid.dataset.panels==='16'?32:
+     this.grid.dataset.panels==='4'?22:15;
+   if(this.lastDrawAt&&time-this.lastDrawAt<minInterval){
+     requestAnimationFrame(paint);return;
+   }
+   this.pending=false;
+   this.lastDrawAt=time;
+   this.draw();
+  };
+  requestAnimationFrame(paint);
  }
  private draw(){
   const started=performance.now();
@@ -210,9 +225,13 @@ export class PanelGpu {
    }catch(e){this.fail(e);return;}
   }
   gl.disable(gl.SCISSOR_TEST);
-  const error=gl.getError();
-  if(error!==gl.NO_ERROR)this.fail('WebGL error 0x'+error.toString(16));
-  else this.lastDrawMs=performance.now()-started;
+  this.lastDrawMs=performance.now()-started;
+  // gl.getError() may synchronize with the GPU and stall interactive panning.
+  // Sample it periodically instead of on every displayed frame.
+  if(++this.drawNumber%60===0){
+   const error=gl.getError();
+   if(error!==gl.NO_ERROR)this.fail('WebGL error 0x'+error.toString(16));
+  }
  }
  private fail(reason:unknown){
   if(this.failed)return;
