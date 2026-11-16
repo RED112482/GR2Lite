@@ -53,7 +53,6 @@ let isPlaying=false;
 let playbackTimer=0;
 let playbackGeneration=0;
 let playbackRateMs=300;
-let warmupActive=false;
 const prefetching=new Set<string>();
 const prefetchQueue:string[]=[];
 let prefetchWorkers=0;
@@ -302,7 +301,8 @@ async function syncRadar(initial=false){
     }
     if(initial||target.volume_id!==volume?.volume_id){
       await chooseVolume(await descriptorFor(target.volume_id),initial);
-      if(!initial)prefetchNearby();
+      if(initial)window.setTimeout(prefetchNearby,350);
+      else prefetchNearby();
     }else{
       currentHistory();
       setStatus(feedMode==='chunks'?(feedSource==='archive-fallback'?'FALLBACK • ':'CHUNKS • ')+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
@@ -364,6 +364,8 @@ function prefetchNearby(){
   for(let n=1;n<=2;n++){
     candidates.push(availableVolumes[(index+n)%availableVolumes.length]);
   }
+  // Drop obsolete queued requests when the user jumps to another part of the loop.
+  prefetchQueue.length=0;
   for(const entry of candidates){
     if(!prefetching.has(entry.volume_id)&&!prefetchQueue.includes(entry.volume_id))
       prefetchQueue.push(entry.volume_id);
