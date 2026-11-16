@@ -91,3 +91,14 @@ export async function fetchVolumeDescriptor(root:string,id:string):Promise<Volum
   if(v.contract_version!=='0.1.0')throw new Error('Unsupported radar contract '+v.contract_version);
   return v;
 }
+
+/** Compatibility guard for previously cached xradar Level-II velocity arrays.
+ * Raw 0/1 NEXRAD 8-bit velocity codes can emerge scaled as -64.5/-64.0 m/s
+ * in older decoders; these are ND/range-folded, not actual extreme winds.
+ * The backend now masks these as NaN for newly decoded scans.
+ */
+export function isNoData(moment:Moment,value:number,units:string):boolean {
+  if(!Number.isFinite(value))return true;
+  if(moment!=='VEL'||!/m\\/?s|m s-1|meter/i.test(units))return false;
+  return Math.abs(value+64.5)<0.0001||Math.abs(value+64.0)<0.0001;
+}
