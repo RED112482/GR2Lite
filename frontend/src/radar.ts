@@ -99,6 +99,7 @@ export async function fetchVolumeDescriptor(root:string,id:string):Promise<Volum
  */
 export function isNoData(moment:Moment,value:number,units:string):boolean {
   if(!Number.isFinite(value))return true;
-  if(moment!=='VEL'||!/m\\/?s|m s-1|meter/i.test(units))return false;
+  const u=units.toLowerCase();
+  if(moment!=='VEL'||!(u.includes('m/s')||u.includes('m s-1')||u.includes('meter')))return false;
   return Math.abs(value+64.5)<0.0001||Math.abs(value+64.0)<0.0001;
 }
