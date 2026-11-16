@@ -135,6 +135,8 @@ export class PanelManager {
   private page=0;
   private selectedIndex=0;
   private overrides=new Map<number,{moment:Moment;angle:number}>();
+  private layoutAngle:number|undefined;
+  private layoutMoment:Moment|undefined;
   private segments:Segments=[];
   private gpu:PanelGpu;
   private rendered:PanelDraw[]=[];
@@ -197,7 +199,9 @@ export class PanelManager {
     this.refreshViewport();
   }
   setCount(count:Count){
-    this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.onLayoutChange(count);this.schedule();
+    this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();
+    this.layoutAngle=this.current?.angle;
+    this.layoutMoment=this.current?.moment;this.onLayoutChange(count);this.schedule();
     const label=document.getElementById('panelSelection');if(label)label.textContent=this.selectionLabel();
     if(count>1)void this.loadBoundaries();
     document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(
@@ -212,7 +216,9 @@ export class PanelManager {
     const changed=this.current?.volume.volume_id!==volume.volume_id;
     const previous=this.current;
     this.current={volume,moment,angle:sweep.fixed_angle_deg};
-    if(changed && previous && volume.radar_id!==previous.volume.radar_id)this.overrides.clear();
+    if(changed && previous && volume.radar_id!==previous.volume.radar_id){
+      this.overrides.clear();this.layoutAngle=sweep.fixed_angle_deg;this.layoutMoment=moment;
+    }
     if(changed && volume.volume_id.split('_CH')[0]!==previous?.volume.volume_id.split('_CH')[0])this.page=0;
     // Selected-tile interrogation must never rebuild every panel.
     // Product/elevation edits already schedule their own tile refresh.
@@ -221,7 +227,9 @@ export class PanelManager {
   /** Resolve each pane independently. Selection controls apply to that pane only. */
   private tiles():Tile[]{
     if(!this.current)return [];
-    const {volume,moment,angle}=this.current;
+    const {volume}=this.current;
+    const moment=this.layoutMoment??this.current.moment;
+    const angle=this.layoutAngle??this.current.angle;
     const angles=uniqueAngles(volume);
     if(!angles.length)return [];
     const index=angles.reduce((best,s,i)=>
