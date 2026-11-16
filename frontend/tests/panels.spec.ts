@@ -17,7 +17,7 @@ const descriptor={
   radar_id:'KMOB',radar_lat:30.68,radar_lon:-88.24,radar_alt_m:70,
   source:'archive',sweeps
 };
-async function mockRadar(page:Page) {
+async function mockRadar(page:Page,withHistory=false) {
   await page.route('**/api/**',async route=>{
     const pathname=new URL(route.request().url()).pathname.replace(/^\/api/,'');
     const json=(body:unknown)=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
@@ -26,10 +26,15 @@ async function mockRadar(page:Page) {
       age_seconds:null,last_error:null,last_check_utc:null
     });
     if(pathname==='/volumes/index')return json([{
+      volume_id:withHistory?'KMOB_TEST_VOLUME_OLDER':descriptor.volume_id,
+      radar_id:'KMOB',time_utc:'2026-11-15T17:55:00.000Z',sweeps:2
+    },{
       volume_id:descriptor.volume_id,radar_id:'KMOB',
       time_utc:baseTime,sweeps:2
     }]);
     if(pathname==='/volumes/KMOB_TEST_VOLUME')return json(descriptor);
+    if(pathname==='/volumes/KMOB_TEST_VOLUME_OLDER')
+      return json({...descriptor,volume_id:'KMOB_TEST_VOLUME_OLDER'});
     if(pathname.startsWith('/boundaries/'))return json({type:'FeatureCollection',features:[]});
     if(pathname.endsWith('/moments/REF')||pathname.endsWith('/moments/VEL')){
       const vel=pathname.endsWith('/VEL');
@@ -77,4 +82,19 @@ test('four and sixteen pane layouts have visible independent tiles',async({page}
   await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
   await expect(page.locator('#panelGrid .panel-caption').first()).toContainText('0.5');
   await expect(page.locator('#panelGrid .panel-caption').nth(1)).toContainText('1.5');
+});
+
+test('time looping reuses prefetched native gates and supports rapid stepping',async({page})=>{
+  await mockRadar(page,true);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#prevTime').click();
+  await expect(page.locator('#volumeLabel')).toContainText('KMOB_TEST_VOLUME_OLDER',{timeout:10000});
+  await page.locator('#nextTime').click();
+  await expect(page.locator('#volumeLabel')).toContainText('KMOB_TEST_VOLUME',{timeout:10000});
+  await page.locator('#playbackSpeed').selectOption('150');
+  await page.locator('#playTime').click();
+  await expect(page.locator('#playTime')).toContainText('Pause',{timeout:10000});
+  await page.locator('#playTime').click();
+  await expect(page.locator('#playTime')).toContainText('Play');
 });
