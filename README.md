@@ -135,3 +135,38 @@ single WebGL display leaves missing gates unpainted so the dark basemap shows
 through. The original velocity measurements are not converted from m/s
 to knots until display time. Older disk snapshots should still be visually
 safe due to the frontend guard.
+
+## Live scan-status strip
+
+A permanent strip beneath the app header shows **unique elevation angles**
+in ascending order, updating when complete Level-II sweeps arrive. The
+**green-glowing elevation** is the latest received cut (using actual ray
+timestamps); the blue outline is the cut currently selected for interrogation.
+Repeated elevations show their repeat count, and clicking a tilt navigates to
+that elevation. The strip continues monitoring the newest volume while you
+navigate historical radar loops.
+
+- **VCP:** from xradar root `scan_name` (NEXRAD Message 5), when available.
+- **SAILS/MRLE/standard:** from `dynamic_scan_type` (Message 5); this is
+  authoritative when the metadata is present.
+- **AVSET ON/OFF:** from `avset_enabled` (Message 2), not from guessing whether
+  the current volume has reached its maximum elevation.
+- **UNKNOWN:** used when the relevant message has not been seen or cannot be
+  decoded. Without authoritative metadata the strip may show a tentative
+  observation (marked with `?`) based on repeated low-level elevations.
+- An incomplete live volume reports its number of *completed* received sweeps;
+  the status changes to VOLUME COMPLETE only when the S3 end-of-volume chunk
+  is received.
+
+Data-field references: [xradar NEXRAD Level-II backend](https://docs.openradarscience.org/projects/xradar/en/latest/_modules/xradar/io/backends/nexrad_level2.html)
+and [NWS Radar Operations Center scanning techniques](https://www.roc.noaa.gov/radar-techniques.php).
+
+### Next planned engineering milestone
+
+**Instrument radar latency and rendering performance** before increasing scope:
+measure chunk arrival-to-decode, decode-to-publish, API download, WebGL upload,
+and actual frame-loop rates across 1/2/4/16 panels. Then replace repeated
+whole-volume decoding with sweep-oriented incremental decoding and migrate the
+remaining Canvas2D panel previews to reusable GPU rendering. The target is
+smooth, predictable navigation without compromising the integrity of NEXRAD
+missing-data and range-folded gate handling.
