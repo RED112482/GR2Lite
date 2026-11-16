@@ -8,7 +8,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event, Lock, Thread
+from threading import Event, RLock, Thread
 import logging
 import os
 import re
@@ -46,7 +46,7 @@ def latest_kmob_key(s3, now: datetime | None = None) -> str | None:
 class RadarStore:
     """Shared memory state with atomic decoded-volume publication."""
     def __init__(self, limit: int = 3):
-        self._lock = Lock()
+        self._lock = RLock()
         self._items: OrderedDict[str, DecodedVolume] = OrderedDict()
         self.limit = max(1, min(limit, 6))
         history_root = os.environ.get('GR2LITE_HISTORY_DIR')
@@ -112,16 +112,17 @@ class RadarStore:
 
     def status(self)->dict:
         with self._lock:
-            v=next(iter(self._items.values()),None)
+            all_volumes=self.list()
+            active=next(iter(self._items.values()),None)
+            v=active or (all_volumes[0] if all_volumes else None)
             latest=v.descriptor.volume_id if v else None
             sample_time=end_time(v) if v else None
             age=(datetime.now(timezone.utc)-sample_time).total_seconds() if sample_time else None
-            all_volumes=self.list()
             first=end_time(all_volumes[-1]) if all_volumes else None
             coverage=(sample_time-first).total_seconds()/60 if sample_time and first else 0
             return {
                 "mode":self.mode,
-                "feed_source":self.feed_source,
+                "feed_source":self.feed_source if active else ("disk-cache" if v else self.feed_source),
                 "chunk_count":self.chunk_count,
                 "chunk_volume":self.chunk_volume,
                 "complete_sweeps":len(v.descriptor.sweeps) if v else 0,
