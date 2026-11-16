@@ -225,3 +225,20 @@ fresh, while the most recent upper levels belong to the prior complete scan.
 
 This is an *availability* rail, not a synthetic merged Level-II volume.
 Radar data and acquisition timestamps remain tied to their original source.
+
+## Incremental sweep reuse (performance milestone)
+
+Previously, every newly arrived S/I/E chunk caused GR2Lite to recopy and
+normalize all previously completed sweeps when rebuilding a volume snapshot.
+The live decoder now checks each finished sweep's radar, source volume, ray
+timestamps, azimuths, elevations, moment set, range spacing, and units before
+reusing its already decoded native float32 buffers. Changed or newly received
+sweeps still decode normally. This preserves the original Level-II gate
+values, missing-data masks, and the independent time/tilt status rail.
+
+The sidebar's **Decoded / reused cuts** diagnostic separates newly processed
+sweeps from sweeps reused unchanged. **Decode / publish** shows the observed
+duration. Note that xradar still parses the incoming chunk sequence to build
+the updated DataTree; this optimization targets the application-level gate
+array extraction and conversion, not the underlying radial parsing. It is
+not yet true partial-radial decoding or a measured guarantee of latency gains.
