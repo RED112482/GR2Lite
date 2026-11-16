@@ -193,13 +193,20 @@ function currentHistory(){
   for(const v of availableVolumes){
     const opt=document.createElement('option');
     opt.value=v.volume_id;
-    const stamp=v.sweeps.length && v.sweeps[0].time_utc.length
-      ? new Date(v.sweeps[0].time_utc[0]).toISOString().slice(0,19).replace('T',' ')+'Z'
-      : v.volume_id;
-    opt.textContent=stamp;
+    opt.textContent=v.time_utc
+      ?new Date(v.time_utc).toISOString().slice(0,19).replace('T',' ')+'Z'
+      :v.volume_id;
     select.appendChild(opt);
   }
   if(id&&availableVolumes.some(v=>v.volume_id===id))select.value=id;
+  const slider=el<HTMLInputElement>('timeSlider');
+  slider.max=String(Math.max(0,availableVolumes.length-1));
+  const index=availableVolumes.findIndex(v=>v.volume_id===id);
+  slider.value=String(index<0?Math.max(0,availableVolumes.length-1):availableVolumes.length-1-index);
+  el<HTMLSpanElement>('historyPosition').textContent=
+    availableVolumes.length?(availableVolumes.length-Math.max(index,0))+'/'+availableVolumes.length:'—';
+  el<HTMLSpanElement>('historyCoverage').textContent=
+    'History '+historyCoverage.toFixed(0)+' / 60 min';
 }
 
 async function chooseVolume(selected:VolumeDescriptor,initial:boolean){
@@ -232,6 +239,7 @@ async function syncRadar(initial=false){
       mode:'archive'|'live'|'chunks';state:string;latest_volume_id:string|null;feed_source?:string;
       chunk_count?:number;complete_sweeps?:number;
       age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
+      history_minutes_available?:number;
     };
     feedMode=info.mode;feedState=info.state;feedSource=info.feed_source??info.mode;
     const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
@@ -240,20 +248,21 @@ async function syncRadar(initial=false){
         (info.mode==='chunks'?' • '+(info.chunk_count??0)+' chunks, '+(info.complete_sweeps??0)+' cuts':'')+
         (info.last_error?' • last update error: '+info.last_error:'')
       : 'Archived volume • automatic updates disabled';
-    const list=await fetchVolumes(root);
+    const list=await fetchVolumeIndex(root);
     availableVolumes=list;
+    historyCoverage=Number(info.history_minutes_available??0);
     const follow=el<HTMLInputElement>('followLive').checked;
     const target=follow?list[0]:list.find(v=>v.volume_id===volume?.volume_id)??list[0];
     if(!target){
       currentHistory();
-      if(info.mode==='live'){
+      if(info.mode!=='archive'){
         setStatus(info.state==='error'?'FEED ERROR':'WAITING FOR KMOB',info.state==='error'?'error':'');
         clearError();
       }else if(initial)throw new Error('No archive loaded. Set GR2LITE_ARCHIVE_PATH and restart backend.');
       return;
     }
     if(initial||target.volume_id!==volume?.volume_id){
-      await chooseVolume(target,initial);
+      await chooseVolume(await descriptorFor(target.volume_id),initial);
     }else{
       currentHistory();
       setStatus(feedMode==='chunks'?(feedSource==='archive-fallback'?'FALLBACK • ':'CHUNKS • ')+feedState.toUpperCase():feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
@@ -262,7 +271,7 @@ async function syncRadar(initial=false){
     if(!boundariesLoaded&&map.isStyleLoaded()){
       boundariesLoaded=true;
       void installBoundaries(map,root);
-      void panelManager.loadBoundaries();
+
     }
     clearError();
   }catch(e){
@@ -279,6 +288,7 @@ async function syncRadar(initial=false){
 async function connect(){
   ++request;
   frameCache.clear();
+  descriptorCache.clear();
   boundariesLoaded=false;
   clearError();setStatus('CONNECTING');
   localStorage.setItem('gr2lite-api',apiInput.value.trim());
@@ -288,10 +298,10 @@ el<HTMLButtonElement>('connect').onclick=()=>{void connect();};
 el<HTMLSelectElement>('history').onchange=async e=>{
   el<HTMLInputElement>('followLive').checked=false;
   const target=availableVolumes.find(v=>v.volume_id===(e.target as HTMLSelectElement).value);
-  if(target)await chooseVolume(target,false);
+  if(target)await chooseVolume(await descriptorFor(target.volume_id),false);
 };
 el<HTMLInputElement>('followLive').onchange=()=>{
-  if(el<HTMLInputElement>('followLive').checked)void syncRadar();
+  if(el<HTMLInputElement>('followLive').checked){stopPlayback();void syncRadar();}
 };
 // Only one status poll can run at a time; keep history and view stable.
 window.setInterval(()=>{void syncRadar();},12000);
