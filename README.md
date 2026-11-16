@@ -24,6 +24,12 @@ The frontend API address should be `/api`. The backend status page is
 
 - **1 panel:** full interactive WebGL2 map.
 - **2 panels:** REF and VEL at the closest available cut angle. Each tile has its own colorbar.
+- **Editing a pane:** click the pane once (blue outline), then use the sidebar
+  product buttons and elevation selector to change **only that pane**.
+  The selected-pane label identifies which pane is being edited. Product and
+  elevation choices persist independently during incremental updates.
+  In 16-panel mode each pane retains its assigned elevation (ascending),
+  but its radar moment can be changed. Double-click a pane to maximize it.
 - **4 panels:** REF/VEL at the selected elevation and next elevation, with separately labeled colorbars.
 - **16 panels:** all **unique** elevation angles from lowest to highest;
   if more than 16, use the page arrows. These panels are optimized Canvas2D
@@ -106,3 +112,16 @@ re-running pip on each subsequent launch. The selected radar is currently KMOB.
 Validation: check `/radar/status` for `feed_source`, `age_seconds`,
 `history_minutes_available` and `history_error`, and test the panel and time
 controls in a browser. The project is not an approved NWS warning-decision tool.
+
+## Velocity ND and missing-data handling
+
+The Level-II data moment uses raw codes **0** (below threshold/no data) and
+**1** (range folded). These are not valid radial velocities. GR2Lite now
+normalizes known decoded representations to **NaN** in the Python decoder,
+and includes a frontend compatibility guard for older cached samples decoded
+to **-64.5/-64.0 m/s** (which previously appeared around -125 kt).
+The 2/4/16-panel velocity previews use black backgrounds for ND; the
+single WebGL display leaves missing gates unpainted so the dark basemap shows
+through. The original velocity measurements are not converted from m/s
+to knots until display time. Older disk snapshots should still be visually
+safe due to the frontend guard.
