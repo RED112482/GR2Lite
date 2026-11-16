@@ -159,6 +159,7 @@ export class PanelManager {
   }
   setCount(count:Count){
     this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.schedule();
+    const label=document.getElementById('panelSelection');if(label)label.textContent=this.selectionLabel();
     if(count>1)void this.loadBoundaries();
     document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(
       b=>b.classList.toggle('active',Number(b.dataset.panels)===count));
@@ -210,12 +211,15 @@ export class PanelManager {
       return {sweep:s,moment:product,label:s.fixed_angle_deg.toFixed(1)+'°'};
     });
   }
+  selectionLabel():string { return this.count===1?'Single-panel view':'Editing panel '+(this.selectedIndex+1)+' of '+this.count; }
   active():Tile|undefined {
     if(this.count===1)return undefined;
     return this.tiles()[this.selectedIndex];
   }
   private activate(index:number) {
     this.selectedIndex=index;
+    const label=document.getElementById('panelSelection');
+    if(label)label.textContent=this.selectionLabel();
     this.grid.querySelectorAll('.panel-tile').forEach((node,i)=>
       node.classList.toggle('active',i===index));
     const tile=this.active();
