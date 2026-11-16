@@ -117,3 +117,19 @@ def test_volume_metadata_gzip_and_plain_json_responses():
             assert plain.json()["sweeps"][0]["ray_count"]==2
     finally:
         CACHE.clear()
+
+def test_rda_status_metadata_is_explicit_and_missing_is_unknown():
+    tree=sample_tree()
+    tree["/"].attrs.update({
+        "scan_name":"VCP-212",
+        "dynamic_scan_type":"SAILS x 2",
+        "avset_enabled":True,
+    })
+    d=decode_tree(tree,"KMOB","status-fixture").descriptor
+    assert d.vcp=="VCP-212"
+    assert d.dynamic_scan_type=="SAILS x 2"
+    assert d.avset_enabled is True
+    assert d.volume_complete is False
+    missing=decode_tree(sample_tree(),"KMOB","no-rda").descriptor
+    assert missing.avset_enabled is None
+    assert missing.dynamic_scan_type is None
