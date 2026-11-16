@@ -249,7 +249,7 @@ export class PanelManager {
       return {sweep:s,moment:product,label:s.fixed_angle_deg.toFixed(1)+'°'};
     });
   }
-  selectionLabel():string { return this.count===1?'Single-panel view':'Editing panel '+(this.selectedIndex+1)+' of '+this.count; }
+  selectionLabel():string { return this.count===1?'Single-panel view':'Editing panel '+(this.selectedIndex+1)+' of '+this.count+(this.gpu.ready?' • GPU':' • CPU fallback'); }
   active():Tile|undefined {
     if(this.count===1)return undefined;
     return this.tiles()[this.selectedIndex];
@@ -330,6 +330,8 @@ export class PanelManager {
     this.grid.classList.remove('hidden');
     this.grid.dataset.panels=String(this.count);
     this.grid.dataset.renderer=this.gpu.ready?'gpu':'cpu';
+    const status=document.getElementById('panelSelection');
+    if(status)status.textContent=this.selectionLabel();
     const {volume}=this.current;
     const columns=this.count===2?2:this.count===4?2:4;
     this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
