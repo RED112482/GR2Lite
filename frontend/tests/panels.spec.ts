@@ -25,13 +25,11 @@ async function mockRadar(page:Page,withHistory=false) {
       mode:'archive',state:'ready',latest_volume_id:descriptor.volume_id,
       age_seconds:null,last_error:null,last_check_utc:null
     });
-    if(pathname==='/volumes/index')return json([{
-      volume_id:withHistory?'KMOB_TEST_VOLUME_OLDER':descriptor.volume_id,
-      radar_id:'KMOB',time_utc:'2026-11-15T17:55:00.000Z',sweeps:2
-    },{
-      volume_id:descriptor.volume_id,radar_id:'KMOB',
-      time_utc:baseTime,sweeps:2
-    }]);
+    if(pathname==='/volumes/index')return json([
+      {volume_id:descriptor.volume_id,radar_id:'KMOB',time_utc:baseTime,sweeps:2},
+      ...(withHistory?[{volume_id:'KMOB_TEST_VOLUME_OLDER',radar_id:'KMOB',
+        time_utc:'2026-11-15T17:55:00.000Z',sweeps:2}]:[])
+    ]);
     if(pathname==='/volumes/KMOB_TEST_VOLUME')return json(descriptor);
     if(pathname==='/volumes/KMOB_TEST_VOLUME_OLDER')
       return json({...descriptor,volume_id:'KMOB_TEST_VOLUME_OLDER'});
