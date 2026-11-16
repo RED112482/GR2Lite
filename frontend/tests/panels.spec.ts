@@ -46,7 +46,7 @@ async function mockRadar(page:Page) {
 
 test('multi-panel controls configure only the selected radar pane',async({page})=>{
   await mockRadar(page);
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
   await page.locator('#headerLayouts button[data-panels="2"]').click();
   await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(2);
@@ -65,7 +65,7 @@ test('multi-panel controls configure only the selected radar pane',async({page})
 
 test('four and sixteen pane layouts have visible independent tiles',async({page})=>{
   await mockRadar(page);
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
   await page.locator('#headerLayouts button[data-panels="4"]').click();
   await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(4);
