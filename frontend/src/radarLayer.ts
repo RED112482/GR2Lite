@@ -86,7 +86,7 @@ export class PolarRadarLayer {
   private gateTexture?:WebGLTexture;
   private lookupTexture?:WebGLTexture;
   private paletteTexture?:WebGLTexture;
-  private lookup = new Float32Array(3600);
+  private lookup:Float32Array = new Float32Array(3600);
   private radarXY:[number,number]=[0,0];
   private scale=1;
   private frame?:RadarFrame;
