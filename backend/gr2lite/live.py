@@ -60,6 +60,7 @@ class RadarStore:
         self.feed_source = "archive"
         self.chunk_count = 0
         self.chunk_volume = None
+        self.latency_metrics: dict[str, float | int | str | None] = {}
 
     def publish(self, volume: DecodedVolume) -> bool:
         with self._lock:
@@ -122,6 +123,7 @@ class RadarStore:
             coverage=(sample_time-first).total_seconds()/60 if sample_time and first else 0
             return {
                 "mode":self.mode,
+                "latency_metrics":dict(self.latency_metrics),
                 "feed_source":self.feed_source if active else ("disk-cache" if v else self.feed_source),
                 "chunk_count":self.chunk_count,
                 "chunk_volume":self.chunk_volume,
