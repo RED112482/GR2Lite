@@ -274,6 +274,27 @@ export class PanelManager {
     const angle=this.layoutAngle??this.current.angle;
     const angles=uniqueAngles(volume);
     if(!angles.length)return [];
+    if(this.count===16&&this.rollingIndex?.tilts.length){
+      return this.rollingIndex.tilts.slice(this.page*16,(this.page+1)*16)
+        .map(t=>{
+          const preferred=this.overrides.get(this.page*16+
+            this.rollingIndex!.tilts.slice(this.page*16,(this.page+1)*16).indexOf(t))?.moment??moment;
+          const name=(t.moments[preferred]?preferred:
+            t.moments.REF?'REF':t.moments.VEL?'VEL':
+            Object.keys(t.moments)[0]) as Moment;
+          const source=t.moments[name];
+          if(!source)return null;
+          const resolved=this.sourceCache.get(this.sourceKey(source));
+          return {
+            sweep:resolved?.sweep??angles.find(s=>Math.abs(s.fixed_angle_deg-t.angle)<0.16)??angles[0],
+            volume:resolved?.volume,
+            moment:name,
+            label:t.angle.toFixed(1)+'°',
+            source,
+            newest:t.newest,
+          } as Tile;
+        }).filter((t):t is Tile=>Boolean(t));
+    }
     const index=angles.reduce((best,s,i)=>
       Math.abs(s.fixed_angle_deg-angle)<Math.abs(angles[best].fixed_angle_deg-angle)?i:best,0);
     const requested=this.count===16
@@ -329,8 +350,8 @@ export class PanelManager {
   }
   selectAngle(angle:number):boolean {
     if(this.count!==16||!this.current)return false;
-    const options=uniqueAngles(this.current.volume);
-    const found=options.findIndex(s=>Math.abs(s.fixed_angle_deg-angle)<0.16);
+    const options=this.rollingIndex?.tilts.map(t=>t.angle)??uniqueAngles(this.current.volume).map(s=>s.fixed_angle_deg);
+    const found=options.findIndex(a=>Math.abs(a-angle)<0.16);
     if(found<0)return false;
     const nextPage=Math.floor(found/16);
     if(this.page!==nextPage){
@@ -396,7 +417,7 @@ export class PanelManager {
     const jobs=tiles.map((tile,index)=>{
       const box=document.createElement('div');box.className='panel-tile';
       if(index===this.selectedIndex)box.classList.add('active');
-      if(this.count===16&&newest&&Math.abs(tile.sweep.fixed_angle_deg-newest.fixed_angle_deg)<0.16)
+      if(this.count===16&&(tile.newest||(newest&&Math.abs(tile.sweep.fixed_angle_deg-newest.fixed_angle_deg)<0.16&&!this.rollingIndex?.tilts.length)))
         box.classList.add('latest-sweep');
       const plot=document.createElement('div');plot.className='panel-plot';
       const canvas=document.createElement('canvas');plot.append(canvas);
@@ -421,7 +442,20 @@ export class PanelManager {
       while(next<jobs.length&&this.generation===generation){
         const {tile,canvas,caption}=jobs[next++];
         try{
-          const frame=await this.loadFrame(volume,tile.sweep,tile.moment);
+          // All-tilts view can source unscanned upper levels from the
+          // previous complete volume, never from a placeholder low cut.
+          let tileVolume=volume;
+          let tileSweep=tile.sweep;
+          if(this.count===16&&tile.source){
+            const source=tile.source;
+            const resolved=this.sourceCache.get(this.sourceKey(source));
+            const descriptor=resolved?.volume??await this.getDescriptor(source.volume_id);
+            const actual=resolved?.sweep??descriptor.sweeps.find(s=>s.id===source.sweep_id);
+            if(!actual)throw Error('Unavailable source sweep '+source.sweep_id);
+            tileVolume=descriptor;tileSweep=actual;tile.sweep=actual;
+            this.sourceCache.set(this.sourceKey(source),{volume:descriptor,sweep:actual});
+          }
+          const frame=await this.loadFrame(tileVolume,tileSweep,tile.moment);
           if(this.generation!==generation)return;
           const boundaryLines=this.count===16?this.lightOutlines:this.segments;
           this.rendered.push({canvas,frame});
@@ -466,8 +500,10 @@ export class PanelManager {
       }
     });
     void Promise.all(workers);
-    if(this.count===16&&uniqueAngles(volume).length>16){
-      const pages=Math.ceil(uniqueAngles(volume).length/16);
+    const totalTilts=this.count===16&&this.rollingIndex?.tilts.length?
+      this.rollingIndex.tilts.length:uniqueAngles(volume).length;
+    if(this.count===16&&totalTilts>16){
+      const pages=Math.ceil(totalTilts/16);
       const controls=document.createElement('div');controls.className='panel-pagination';
       const prev=document.createElement('button');prev.textContent='◀';prev.disabled=this.page===0;
       prev.onclick=()=>{this.page--;this.schedule();};
