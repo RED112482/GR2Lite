@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import './style.css';
-import {fetchVolumes,fetchFrame,momentOrder,formatValue} from './radar';
-import type {Moment,RadarFrame,VolumeDescriptor,SweepDescriptor} from './radar';
+import {fetchFrame,fetchVolumeIndex,fetchVolumeDescriptor,momentOrder,formatValue} from './radar';
+import type {Moment,RadarFrame,VolumeDescriptor,SweepDescriptor,VolumeIndexEntry} from './radar';
 import {PolarRadarLayer} from './radarLayer';
 import {getPalette,cssGradient} from './palettes';
 import {installBoundaries} from './overlays';
@@ -46,16 +46,53 @@ let request=0;
 let feedMode:'archive'|'live'|'chunks'='archive';
 let feedState='empty';
 let feedSource='archive';
-let availableVolumes:VolumeDescriptor[]=[];
+let availableVolumes:VolumeIndexEntry[]=[];
+const descriptorCache=new Map<string,VolumeDescriptor>();
+const pendingFrames=new Map<string,Promise<RadarFrame>>();
+let isPlaying=false;
+let playbackTimer=0;
+let historyCoverage=0;
 let panelManager:PanelManager;
 let syncing=false;
 let boundariesLoaded=false;
-panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),s=>{sweep=s;renderTiltOptions();void loadFrame();});
-document.querySelectorAll<HTMLButtonElement>('#layoutButtons button').forEach(button=>{
+panelManager=new PanelManager(map,el<HTMLDivElement>('panelGrid'),()=>apiInput.value.trim(),s=>{sweep=s;renderTiltOptions();void loadFrame();},cachedFrame);
+document.querySelectorAll<HTMLButtonElement>('#layoutButtons button, #headerLayouts button').forEach(button=>{
   button.onclick=()=>panelManager.setCount(Number(button.dataset.panels) as 1|2|4|16);
 });
 const frameCache=new Map<string,RadarFrame>();
-function cacheKey(v:VolumeDescriptor,s:SweepDescriptor,m:Moment){return v.volume_id+'|'+s.id+'|'+m;}
+function cacheKey(v:VolumeDescriptor,s:SweepDescriptor,m:Moment){
+  // Identical completed sweeps persist through later arriving chunk snapshots.
+  const d=s.moments[m];
+  return [v.radar_id,m,s.id,s.time_utc[0],s.time_utc[s.time_utc.length-1],
+    d?.rays,d?.gates,d?.first_gate_m,d?.gate_spacing_m].join('|');
+}
+async function cachedFrame(v:VolumeDescriptor,s:SweepDescriptor,m:Moment):Promise<RadarFrame>{
+  const key=cacheKey(v,s,m);
+  const existing=frameCache.get(key);
+  if(existing){
+    frameCache.delete(key);frameCache.set(key,existing);
+    return {...existing,volume:v,sweep:s,descriptor:s.moments[m]!};
+  }
+  let promise=pendingFrames.get(key);
+  if(!promise){
+    promise=fetchFrame(apiInput.value.trim(),v,s,m);
+    pendingFrames.set(key,promise);
+  }
+  try{
+    const result=await promise;
+    frameCache.set(key,result);
+    while(frameCache.size>40)frameCache.delete(frameCache.keys().next().value!);
+    return {...result,volume:v,sweep:s,descriptor:s.moments[m]!};
+  }finally{pendingFrames.delete(key);}
+}
+async function descriptorFor(id:string):Promise<VolumeDescriptor>{
+  const cached=descriptorCache.get(id);
+  if(cached)return cached;
+  const v=await fetchVolumeDescriptor(apiInput.value.trim(),id);
+  descriptorCache.set(id,v);
+  while(descriptorCache.size>5)descriptorCache.delete(descriptorCache.keys().next().value!);
+  return v;
+}
 function currentMomentOptions():Moment[]{return volume?momentOrder.filter(m=>volume!.sweeps.some(s=>s.moments[m])):[];}
 function setMoments(){
   const holder=el<HTMLDivElement>('moments');holder.replaceChildren();
@@ -104,13 +141,7 @@ async function loadFrame(){
   const id=++request,v=volume,s=sweep,m=moment;
   setMoments();paintLegend();setStatus('LOADING');
   try {
-    const key=cacheKey(v,s,m);
-    let frame=frameCache.get(key);
-    if(!frame){
-      frame=await fetchFrame(apiInput.value.trim(),v,s,m);
-      frameCache.set(key,frame);
-      if(frameCache.size>5)frameCache.delete(frameCache.keys().next().value!);
-    }
+    const frame=await cachedFrame(v,s,m);
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
@@ -133,8 +164,8 @@ async function loadFrame(){
     el<HTMLSpanElement>('scanTime').textContent=timestamp;
     const pal=getPalette(moment,el<HTMLSelectElement>('palette').value);
     el<HTMLSpanElement>('momentLabel').textContent=moment+' • '+pal.unit;
-    const timeList=v.sweeps.flatMap(s=>s.time_utc);
-    const vst=timeList.length?new Date(Math.min(...timeList.map(t=>new Date(t).getTime()))).toISOString().slice(11,19)+'Z':'—';
+    const times=v.sweeps.map(x=>x.time_utc[0]).filter(Boolean);
+    const vst=times.length?new Date(Math.min(...times.map(t=>new Date(t).getTime()))).toISOString().slice(11,19)+'Z':'—';
     const latestTime=s.time_utc.length?new Date(s.time_utc[s.time_utc.length-1]).toISOString().slice(11,19)+'Z':'—';
     const maxRay=peak<0?0:Math.floor(peak/frame.descriptor.gates);
     const maxGate=peak<0?0:peak%frame.descriptor.gates;
@@ -149,7 +180,8 @@ async function loadFrame(){
     el<HTMLSpanElement>('angleLabel').textContent=s.fixed_angle_deg.toFixed(2)+'° / CUT '+s.index;
     el<HTMLSpanElement>('volumeLabel').textContent=(feedMode==='chunks'?'CHUNKS':feedMode==='live'?'NEAR-LIVE':'ARCHIVE')+' • '+v.volume_id;
     el<HTMLDivElement>('gate').textContent='Click a valid radar gate to inspect the native '+m+' measurement.';
-    setStatus(feedMode==='live' ? 'NEAR-LIVE • '+feedState.toUpperCase() : 'ARCHIVE READY',
+    setStatus(feedMode==='chunks'?(feedSource==='archive-fallback'?'FALLBACK • ':'CHUNKS • ')+feedState.toUpperCase():
+      feedMode==='live'?'NEAR-LIVE • '+feedState.toUpperCase():'ARCHIVE READY',
       feedState==='stale'||feedState==='error'?'error': 'ok');
     clearError();
   }catch(e){if(id===request)showError(e);}
