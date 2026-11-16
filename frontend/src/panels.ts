@@ -157,6 +157,36 @@ function extractLines(geometry:{type:string;coordinates:any}):number[][][]{
   if(g.type==='LineString')return [g.coordinates];
   return [];
 }
+/** Screen-space Douglas–Peucker: preserves turns and coastline details.
+ * Uniformly skipping every nth vertex created long false straight edges.
+ * Returned indexes let raw and projected outline representations agree.
+ */
+function simplifyIndices(line:number[][],tolerance:number):number[]{
+  const n=line.length;
+  if(n<=2)return Array.from({length:n},(_,i)=>i);
+  const keep=new Uint8Array(n);keep[0]=1;keep[n-1]=1;
+  const stack:[number,number][]=[[0,n-1]];
+  const squared=tolerance*tolerance;
+  while(stack.length){
+    const [first,last]=stack.pop()!;
+    const [ax,ay]=line[first],[bx,by]=line[last];
+    const dx=bx-ax,dy=by-ay,denom=dx*dx+dy*dy;
+    let best=-1,max=0;
+    for(let i=first+1;i<last;i++){
+      const [px,py]=line[i];
+      const t=denom>0?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/denom)):0;
+      const ex=px-(ax+t*dx),ey=py-(ay+t*dy);
+      const distance=ex*ex+ey*ey;
+      if(distance>max){max=distance;best=i;}
+    }
+    if(max>squared&&best>=0){
+      keep[best]=1;stack.push([first,best],[best,last]);
+    }
+  }
+  const selected:number[]=[];
+  for(let i=0;i<n;i++)if(keep[i])selected.push(i);
+  return selected;
+}
 export class PanelManager {
   count:Count=1;
   private page=0;
@@ -259,10 +289,11 @@ export class PanelManager {
           for(const rawLine of extractLines(feat.geometry)){
             // Keep the boundary strokes lightweight in 16-panel mode.
             if(rawLine.length<2)continue;
-            const stride=Math.max(1,Math.floor(rawLine.length/600));
-            const subset=rawLine.filter((_:unknown,i:number)=>i%stride===0);
-            if(subset[subset.length-1]!==rawLine[rawLine.length-1])subset.push(rawLine[rawLine.length-1]);
-            lines.push(subset);
+            // Simplify by true projected deviation, not every-Nth-point
+            // sampling (which drew erroneous diagonal lines across coasts).
+            const projected=rawLine.map(pair=>projection(pair[0],pair[1]));
+            const indexes=simplifyIndices(projected,0.45/(512*2**11));
+            lines.push(indexes.map(i=>rawLine[i]));
           }
         }
         this.segments.push({color:color[kind],lines});
