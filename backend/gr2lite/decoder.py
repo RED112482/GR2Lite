@@ -136,8 +136,65 @@ def _read_sweep(ds: xr.Dataset, sweep_id: str, idx: int):
                            time_utc=times, moments=moments), arrays
 
 
-def decode_tree(tree, radar_id: str, volume_id: str) -> DecodedVolume:
-    """Adapt an xradar DataTree (also usable with synthetic test trees)."""
+def _matching_completed_sweep(ds: xr.Dataset, prior: SweepDescriptor) -> bool:
+    """Compare all radial coordinates before reusing decoded moment buffers.
+
+    Completed sweeps are immutable within a scan. Reuse is refused when the
+    geometry, timestamps or ray count changes, including split-cut updates.
+    """
+    try:
+        az = np.asarray(ds["azimuth"].values).reshape(-1)
+        elevation = np.asarray(ds["elevation"].values).reshape(-1)
+        t = np.asarray(ds["time"].values).astype("datetime64[ns]").reshape(-1)
+        if az.size != prior.ray_count or elevation.size != prior.ray_count:
+            return False
+        expected_t = np.array(
+            [np.datetime64(item.replace(tzinfo=None), "ns") for item in prior.time_utc],
+            dtype="datetime64[ns]",
+        )
+        if t.size != expected_t.size or not np.array_equal(t, expected_t):
+            return False
+        if not np.array_equal(az, np.asarray(prior.azimuth_deg)):
+            return False
+        if not np.array_equal(elevation, np.asarray(prior.elevation_deg)):
+            return False
+        angle = (_scalar(ds["sweep_fixed_angle"].values)
+                 if "sweep_fixed_angle" in ds else float(np.median(elevation)))
+        if not np.isclose(angle, prior.fixed_angle_deg, rtol=0, atol=0.001):
+            return False
+        # Do not reuse if a moment was added/removed or the range geometry
+        # changed (possible during RDA reconfiguration).
+        available = {
+            moment: _find_variable(ds, aliases)
+            for moment, aliases in ALIASES.items()
+        }
+        available = {moment: name for moment, name in available.items() if name}
+        if set(available) != set(prior.moments):
+            return False
+        for moment, name in available.items():
+            da = ds[name]
+            old = prior.moments[moment]
+            first, spacing = _range_geometry(da)
+            if (name != old.source_variable or
+                not np.isclose(first, old.first_gate_m, rtol=0, atol=0.01) or
+                not np.isclose(spacing, old.gate_spacing_m, rtol=0, atol=0.01) or
+                da.sizes.get("range") != old.gates or
+                str(da.attrs.get("units", "unknown")) != old.units):
+                return False
+        return True
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return False
+
+
+def decode_tree(
+    tree, radar_id: str, volume_id: str, reuse: DecodedVolume | None = None
+) -> DecodedVolume:
+    """Adapt an xradar DataTree while sharing unchanged complete sweep arrays.
+
+    Reuse avoids a second array decode/copy for sweeps already published in
+    the current volume. Newly arriving sweeps always decode normally. Never
+    share buffers between unrelated volume scans.
+    """
     radar_id = radar_id.upper()
     if not re.fullmatch(r"K[A-Z0-9]{3}", radar_id):
         raise ValueError("Expected a four-character CONUS ICAO radar identifier, e.g. KMOB")
@@ -147,31 +204,49 @@ def decode_tree(tree, radar_id: str, volume_id: str) -> DecodedVolume:
             raise ValueError(f"Root missing {coord}; cannot locate radar")
     lat, lon = _scalar(root["latitude"].values), _scalar(root["longitude"].values)
     alt = _scalar(root["altitude"].values) if "altitude" in root else None
-    # Missing site altitude is allowed by the contract, but NaN is not JSON-safe.
     if alt is not None and not np.isfinite(alt):
         alt = None
     ids = sorted((k.lstrip("/") for k in tree.groups if re.fullmatch(r"/sweep_\d+", k)),
                  key=lambda k: int(k.split("_")[-1]))
     if not ids:
         raise ValueError("No sweep groups found")
+    reuse_ready = (
+        reuse is not None
+        and reuse.descriptor.radar_id == radar_id
+        and reuse.descriptor.volume_id.split("_CH", 1)[0] == volume_id.split("_CH", 1)[0]
+        and np.isclose(reuse.descriptor.radar_lat, lat, atol=1e-5)
+        and np.isclose(reuse.descriptor.radar_lon, lon, atol=1e-5)
+    )
+    old_sweeps = {s.id: s for s in reuse.descriptor.sweeps} if reuse_ready else {}
     sweeps, arrays = [], {}
+    reused_count = 0
     for sweep_id in ids:
-        desc, data = _read_sweep(tree[sweep_id].ds, sweep_id, int(sweep_id.split("_")[-1]))
+        old = old_sweeps.get(sweep_id)
+        if (old is not None and
+                all((sweep_id, moment) in reuse.arrays for moment in old.moments) and
+                _matching_completed_sweep(tree[sweep_id].ds, old)):
+            desc = old
+            data = {(sweep_id, moment): reuse.arrays[(sweep_id, moment)]
+                    for moment in old.moments}
+            reused_count += 1
+        else:
+            desc, data = _read_sweep(tree[sweep_id].ds, sweep_id, int(sweep_id.split("_")[-1]))
         sweeps.append(desc)
         arrays.update(data)
     vcp = str(root.attrs.get("scan_name", "")) or None
-    # Message 5 supplies dynamic_scan_type (SAILS/MRLE/standard); Message 2
-    # supplies avset_enabled. Missing messages are UNKNOWN, never assumed OFF.
     strategy_value = root.attrs.get("dynamic_scan_type")
     dynamic_scan_type = str(strategy_value).strip() if strategy_value is not None else None
     if dynamic_scan_type == "":
         dynamic_scan_type = None
     avset_value = root.attrs.get("avset_enabled")
     avset_enabled = bool(avset_value) if isinstance(avset_value, (bool, np.bool_)) else None
-    return DecodedVolume(
+    result = DecodedVolume(
         VolumeDescriptor(volume_id=volume_id, radar_id=radar_id, vcp=vcp,
                          dynamic_scan_type=dynamic_scan_type, avset_enabled=avset_enabled,
                          radar_lat=lat, radar_lon=lon, radar_alt_m=alt, sweeps=sweeps), arrays)
+    # Non-contract diagnostic only; never exposes mutable state to clients.
+    result.reused_sweep_count = reused_count
+    return result
 
 
 def decode_archive(path: str | Path, radar_id: str = "KMOB") -> DecodedVolume:
