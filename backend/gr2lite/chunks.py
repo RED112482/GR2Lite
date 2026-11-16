@@ -161,7 +161,8 @@ class IncrementalChunkPoller(LiveArchivePoller):
         # Only publish when newly completed sweeps exist; don't duplicate UI frames
         old=self.store.list()
         if old and old[0].descriptor.volume_id.startswith(f"KMOB{stamp}_CH"):
-            if len(volume.descriptor.sweeps)<=len(old[0].descriptor.sweeps):
+            if (len(volume.descriptor.sweeps)<=len(old[0].descriptor.sweeps)
+                    and not (volume.descriptor.volume_complete and not old[0].descriptor.volume_complete)):
                 self.last_snapshot=candidate
                 return False
         decode_ms=round((perf_counter()-decode_started)*1000,1)
