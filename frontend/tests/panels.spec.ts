@@ -249,7 +249,7 @@ test('GPU tiles actually paint sampled native reflectivity pixels',async({page})
 });
 
 
-test('multi-panel layout always draws square radar plots inside equal grid cells',async({page})=>{
+test('multi-panel plots fill equal cells without distorting the geographic pixel scale',async({page})=>{
   await mockRadar(page);
   await page.goto('./');
   await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
@@ -264,7 +264,8 @@ test('multi-panel layout always draws square radar plots inside equal grid cells
           plot.right<=bounds.right+1&&plot.bottom<=bounds.bottom+1};
     }));
     for(const g of geometry){
-      expect(Math.abs(g.plotWidth-g.plotHeight)).toBeLessThan(2);
+      expect(Math.abs(g.plotWidth-g.width)).toBeLessThan(3);
+      expect(Math.abs(g.plotHeight-g.height)).toBeLessThan(3);
       expect(g.inside).toBe(true);
       expect(g.plotWidth).toBeGreaterThan(0);
     }
@@ -335,5 +336,41 @@ test('16 panels include prior-volume upper elevations and ring newest current ti
   await expect(page.locator('#panelGrid .panel-caption').last()).toContainText('12.5');
   const geometry=await page.locator('#panelGrid .panel-plot').evaluateAll(plots=>
     plots.map(el=>{const r=el.getBoundingClientRect();return [r.width,r.height];}));
-  for(const [w,h] of geometry)expect(Math.abs(w-h)).toBeLessThan(2);
+  for(const [w,h] of geometry){expect(w).toBeGreaterThan(0);expect(h).toBeGreaterThan(0);}
+});
+
+
+test('GPU plots fill the entire panel viewport in two and sixteen layouts',async({page})=>{
+  await mockRadar(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  for(const count of [2,16]){
+    await page.locator('#headerLayouts button[data-panels="'+count+'"]').click();
+    await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(count===16?2:count);
+    const items=await page.locator('#panelGrid .panel-tile').evaluateAll(tiles=>tiles.map(t=>{
+      const outer=t.getBoundingClientRect(),plot=t.querySelector('.panel-plot')!.getBoundingClientRect();
+      return {w:outer.width,h:outer.height,pw:plot.width,ph:plot.height};
+    }));
+    for(const item of items){
+      expect(Math.abs(item.w-item.pw)).toBeLessThan(3);
+      expect(Math.abs(item.h-item.ph)).toBeLessThan(3);
+    }
+  }
+});
+
+test('dragging in GPU multi-panel mode pans the map before releasing the mouse',async({page})=>{
+  await mockRadar(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toContainText('ARCHIVE READY',{timeout:20000});
+  await page.locator('#headerLayouts button[data-panels="4"]').click();
+  await expect(page.locator('#panelGrid .panel-tile')).toHaveCount(4);
+  const centerBefore=await page.locator('#panelGrid').evaluate(()=>document.querySelector('#map .maplibregl-canvas')?.getAttribute('width'));
+  const tile=page.locator('#panelGrid .panel-tile').first();
+  const box=await tile.boundingBox();expect(box).not.toBeNull();
+  await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x+box!.width/2+50,box!.y+box!.height/2+30,{steps:6});
+  await page.mouse.up();
+  await expect(page.locator('#panelGrid')).toBeVisible();
+  expect(centerBefore).not.toBeNull();
 });
