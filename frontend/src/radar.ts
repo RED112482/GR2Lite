@@ -39,6 +39,8 @@ export interface RadarFrame {
   moment: Moment;
   descriptor: MomentDescriptor;
   values: Float32Array;
+  transferMs?: number;
+  transferBytes?: number;
 }
 export async function fetchVolumes(root: string): Promise<VolumeDescriptor[]> {
   const res = await fetch(root.replace(/\/$/, '') + '/volumes');
@@ -53,6 +55,7 @@ export async function fetchFrame(root: string, volume: VolumeDescriptor, sweep: 
   const descriptor = sweep.moments[moment];
   if (!descriptor) throw new Error('Moment not available on this cut');
   const url = [root.replace(/\/$/, ''), 'volumes', encodeURIComponent(volume.volume_id), 'sweeps', encodeURIComponent(sweep.id), 'moments', moment].join('/');
+  const transferStart=performance.now();
   const response = await fetch(url);
   if (!response.ok) throw new Error('Radar gate request failed (HTTP ' + response.status + ')');
   const bytes = await response.arrayBuffer();
@@ -61,7 +64,8 @@ export async function fetchFrame(root: string, volume: VolumeDescriptor, sweep: 
   }
   if (descriptor.encoding !== 'float32-le') throw new Error('Unsupported binary radar encoding');
   const values = new Float32Array(bytes);
-  return {volume, sweep, moment, descriptor, values};
+  return {volume, sweep, moment, descriptor, values,
+    transferMs:performance.now()-transferStart,transferBytes:bytes.byteLength};
 }
 export function nearestRay(azimuths: number[], bearingDeg: number): { ray: number; error: number } {
   let ray = -1, error = Infinity;
