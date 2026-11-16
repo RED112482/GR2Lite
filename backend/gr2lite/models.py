@@ -58,6 +58,7 @@ class VolumeDescriptor(BaseModel):
     radar_id: str = Field(pattern=r"^K[A-Z0-9]{3}$")
     source: Literal["archive"] = "archive"
     vcp: str | None = None
+    volume_complete: bool = False
     radar_lat: float = Field(ge=-90, le=90)
     radar_lon: float = Field(ge=-180, le=180)
     radar_alt_m: float | None = None
