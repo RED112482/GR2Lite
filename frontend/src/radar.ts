@@ -41,6 +41,7 @@ export interface RadarFrame {
   values: Float32Array;
   transferMs?: number;
   transferBytes?: number;
+  cacheHit?: boolean;
 }
 export async function fetchVolumes(root: string): Promise<VolumeDescriptor[]> {
   const res = await fetch(root.replace(/\/$/, '') + '/volumes');
