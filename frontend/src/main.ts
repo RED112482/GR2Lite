@@ -305,6 +305,55 @@ el<HTMLInputElement>('followLive').onchange=()=>{
 };
 // Only one status poll can run at a time; keep history and view stable.
 window.setInterval(()=>{void syncRadar();},12000);
+
+function stopPlayback(){
+  isPlaying=false;
+  clearInterval(playbackTimer);
+  el<HTMLButtonElement>('playTime').textContent='▶ Play';
+}
+async function stepTime(direction:-1|1,wrap=false){
+  if(!availableVolumes.length)return;
+  const idx=availableVolumes.findIndex(v=>v.volume_id===volume?.volume_id);
+  const currentIdx=idx<0?0:idx;
+  let next=currentIdx-direction; // -1 = older (index increases), +1 = newer
+  if(next<0||next>=availableVolumes.length){
+    if(!wrap)return;
+    next=next<0?availableVolumes.length-1:0;
+  }
+  const target=availableVolumes[next];
+  if(!target)return;
+  el<HTMLInputElement>('followLive').checked=false;
+  try{await chooseVolume(await descriptorFor(target.volume_id),false);}
+  catch(e){showError(e);}
+}
+el<HTMLButtonElement>('prevTime').onclick=()=>{stopPlayback();void stepTime(-1);};
+el<HTMLButtonElement>('nextTime').onclick=()=>{stopPlayback();void stepTime(1);};
+el<HTMLButtonElement>('jumpLive').onclick=()=>{
+  stopPlayback();el<HTMLInputElement>('followLive').checked=true;void syncRadar();
+};
+el<HTMLInputElement>('timeSlider').oninput=(e)=>{
+  stopPlayback();
+  const index=availableVolumes.length-1-Number((e.target as HTMLInputElement).value);
+  const item=availableVolumes[index];
+  if(item){
+    el<HTMLInputElement>('followLive').checked=false;
+    void descriptorFor(item.volume_id).then(v=>chooseVolume(v,false)).catch(showError);
+  }
+};
+el<HTMLButtonElement>('playTime').onclick=()=>{
+  if(isPlaying){stopPlayback();return;}
+  if(availableVolumes.length<2)return;
+  isPlaying=true;
+  el<HTMLButtonElement>('playTime').textContent='Ⅱ Pause';
+  el<HTMLInputElement>('followLive').checked=false;
+  let busy=false;
+  playbackTimer=window.setInterval(async()=>{
+    if(busy)return;
+    busy=true;
+    try{await stepTime(1,true);}finally{busy=false;}
+  },1000);
+};
+
 el<HTMLSelectElement>('tilt').onchange=async e=>{
   sweep=volume?.sweeps.find(s=>s.id===(e.target as HTMLSelectElement).value);
   await loadFrame();
@@ -322,7 +371,7 @@ map.on('click',e=>{
   const f=current;if(!f)return;
   const hit=radar.sample(e.lngLat.lng,e.lngLat.lat);
   el<HTMLDivElement>('gate').textContent=hit
-    ?'Value: '+formatValue(hit.value,f.descriptor.units)
+    ?'Value: '+formatValue(hit.value*valueFactor(f.moment,f.descriptor.units),getPalette(f.moment,'operational').unit)
       +'\nAzimuth: '+hit.azimuth.toFixed(2)+'°'
       +'\nSlant range (approx): '+(hit.rangeM/1000).toFixed(2)+' km'
       +'\nRadial / gate: '+hit.ray+' / '+hit.gate
@@ -331,6 +380,9 @@ map.on('click',e=>{
 });
 window.addEventListener('keydown',e=>{
   if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    e.preventDefault();stopPlayback();void stepTime(e.key==='ArrowLeft'?-1:1);return;
+  }
   if(e.key==='ArrowUp'||e.key==='ArrowDown'){
     e.preventDefault();
     if(panelManager.count===16)return;
