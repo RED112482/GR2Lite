@@ -149,10 +149,13 @@ def volumes():
 
 @app.get("/volumes/{volume_id}")
 def volume(volume_id: str):
-    v = _get_volume(volume_id)
-    if v is None:
-        raise HTTPException(404, "Volume not loaded")
-    return Response(v.descriptor.model_dump_json(), media_type="application/json")
+    # Metadata lookup must NOT mmap dozens of radar arrays just to change time.
+    for item in _all_volumes():
+        if item.descriptor.volume_id == volume_id:
+            return Response(item.descriptor.model_dump_json(),
+                            media_type="application/json",
+                            headers={"Cache-Control":"no-store"})
+    raise HTTPException(404, "Volume not loaded")
 
 
 @app.get("/volumes/{volume_id}/sweeps/{sweep_id}/moments/{moment}")
