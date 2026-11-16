@@ -70,7 +70,7 @@ def latest_listing(s3, prefix: str = 'KMOB/') -> tuple[str, list[str]]:
     raise RuntimeError("KMOB chunk listing has no volume containing its S header")
 
 class IncrementalChunkPoller(LiveArchivePoller):
-    def __init__(self, store:RadarStore, interval:float=12):
+    def __init__(self, store:RadarStore, interval:float=6):
         super().__init__(store,interval=max(5,interval))
         self.interval=max(5,float(interval))
         self.bytes_by_key:dict[str,bytes]={}
