@@ -14,6 +14,8 @@ const apiInput=el<HTMLInputElement>('apiRoot');
 apiInput.value=localStorage.getItem('gr2lite-api')||'/api';
 const status=el<HTMLSpanElement>('status');
 const message=el<HTMLDivElement>('map-error');
+const perfValue=(n:number|null|undefined)=>typeof n==='number'&&Number.isFinite(n)?n.toFixed(1)+' ms':'—';
+function perfText(id:string,value:string){const node=document.getElementById(id);if(node)node.textContent=value;}
 function setStatus(text:string,kind:'ok'|'error'|''=''){
   status.textContent=text;
   status.className='status '+kind;
@@ -197,12 +199,16 @@ function paintLegend(){
 async function loadFrame(){
   if(!volume||!sweep)return;
   const id=++request,v=volume,s=sweep,m=moment;
+  const loadStarted=performance.now();
   setMoments();paintLegend();setStatus('LOADING');
   try {
     const frame=await cachedFrame(v,s,m);
     if(id!==request)return;
     current=frame;
     radar.setFrame(frame);
+    perfText('perfTransfer',perfValue(frame.transferMs)+(frame.transferBytes?' · '+(frame.transferBytes/1048576).toFixed(1)+' MiB':''));
+    perfText('perfGpu',perfValue(radar.lastUploadMs)+(radar.lastGpuCacheHit?' · cached':''));
+    perfText('perfFrame',perfValue(performance.now()-loadStarted));
     panelManager.update(v,m,s);
     updateScanningStrip();
     const signature=cacheKey(v,s,m);
@@ -313,8 +319,14 @@ async function syncRadar(initial=false){
       chunk_count?:number;complete_sweeps?:number;
       age_seconds:number|null;last_error:string|null;last_check_utc:string|null;
       history_minutes_available?:number;
+      latency_metrics?:{discovery_ms?:number;download_ms?:number;decode_ms?:number;publish_ms?:number};
     };
     feedMode=info.mode;feedState=info.state;feedSource=info.feed_source??info.mode;
+    const metrics=info.latency_metrics;
+    perfText('perfRayAge',typeof info.age_seconds==='number'?info.age_seconds.toFixed(0)+' s':'—');
+    perfText('perfDiscovery',perfValue(metrics?.discovery_ms));
+    perfText('perfDownload',perfValue(metrics?.download_ms));
+    perfText('perfDecode',perfValue(metrics?.decode_ms)+(metrics?.publish_ms!==undefined?' / '+perfValue(metrics.publish_ms):''));
     const age=info.age_seconds===null?'unknown':Math.round(info.age_seconds/60)+' min';
     el<HTMLParagraphElement>('feedInfo').textContent=info.mode!=='archive'
       ? (info.mode==='chunks'?'Incremental chunks':'Completed volumes')+' • '+(info.feed_source??'feed')+' • latest ray '+age+' old'+
