@@ -49,3 +49,10 @@ def test_status_and_history_nested_lock_not_stuck():
     assert not t.is_alive(), "Radar status deadlocked while reading history"
     assert result[0]["state"] == "empty"
     assert result[0]["volume_count"] == 0
+
+def test_radar_status_exports_last_published_ingest_metrics():
+    store=RadarStore(limit=2)
+    store.latency_metrics={"discovery_ms":12.5,"download_ms":85.0,"decode_ms":220.0,"publish_ms":1.5}
+    status=store.status()
+    assert status["latency_metrics"]["decode_ms"] == 220.0
+    assert status["latency_metrics"]["discovery_ms"] == 12.5
