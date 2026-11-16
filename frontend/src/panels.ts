@@ -73,7 +73,8 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
         const index=Math.max(0,Math.min(255,Math.round(255*(value-pal.min)/(pal.max-pal.min))))*4;
         pixels[i]=colors[index];pixels[i+1]=colors[index+1];pixels[i+2]=colors[index+2];
       }else{
-        pixels[i]=24;pixels[i+1]=30;pixels[i+2]=39;
+        const background=f.moment==='VEL'?0:24;
+        pixels[i]=background;pixels[i+1]=f.moment==='VEL'?0:30;pixels[i+2]=f.moment==='VEL'?0:39;
       }
       pixels[i+3]=255;
     }
@@ -169,10 +170,13 @@ export class PanelManager {
   private current?:{volume:VolumeDescriptor;moment:Moment;angle:number};
   update(volume:VolumeDescriptor,moment:Moment,sweep:SweepDescriptor){
     const changed=this.current?.volume.volume_id!==volume.volume_id;
+    const previous=this.current;
     this.current={volume,moment,angle:sweep.fixed_angle_deg};
-    if(changed && this.current && volume.radar_id!==this.current.volume.radar_id)this.overrides.clear();
-    if(changed && volume.volume_id.split('_CH')[0]!==this.current?.volume.volume_id.split('_CH')[0])this.page=0;
-    this.schedule();
+    if(changed && previous && volume.radar_id!==previous.volume.radar_id)this.overrides.clear();
+    if(changed && volume.volume_id.split('_CH')[0]!==previous?.volume.volume_id.split('_CH')[0])this.page=0;
+    // Selected-tile interrogation must never rebuild every panel.
+    // Product/elevation edits already schedule their own tile refresh.
+    if(changed||!previous||this.count===1)this.schedule();
   }
   /** Resolve each pane independently. Selection controls apply to that pane only. */
   private tiles():Tile[]{
