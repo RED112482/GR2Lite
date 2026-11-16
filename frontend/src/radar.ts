@@ -71,3 +71,23 @@ export function nearestRay(azimuths: number[], bearingDeg: number): { ray: numbe
 export function formatValue(value: number, units: string): string {
   return Number.isFinite(value) ? value.toFixed(2) + ' ' + units : 'NO DATA';
 }
+
+export interface VolumeIndexEntry {
+  volume_id:string;
+  radar_id:string;
+  time_utc:string|null;
+  sweeps:number;
+}
+export async function fetchVolumeIndex(root:string):Promise<VolumeIndexEntry[]> {
+  const response=await fetch(root.replace(/\/$/,'')+'/volumes/index',{cache:'no-store'});
+  if(!response.ok)throw new Error('History index HTTP '+response.status);
+  const rows=await response.json() as VolumeIndexEntry[];
+  return Array.isArray(rows)?rows:[];
+}
+export async function fetchVolumeDescriptor(root:string,id:string):Promise<VolumeDescriptor>{
+  const response=await fetch(root.replace(/\/$/,'')+'/volumes/'+encodeURIComponent(id));
+  if(!response.ok)throw new Error('Volume metadata HTTP '+response.status);
+  const v=await response.json() as VolumeDescriptor;
+  if(v.contract_version!=='0.1.0')throw new Error('Unsupported radar contract '+v.contract_version);
+  return v;
+}
