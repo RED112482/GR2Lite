@@ -1,4 +1,6 @@
 import maplibregl from 'maplibre-gl';
+import {PanelGpu} from './panelGpu';
+import type {PanelDraw} from './panelGpu';
 import {getBoundary} from './boundaryData';
 
 import {isNoData} from './radar';
@@ -95,6 +97,30 @@ function drawFrame(canvas:HTMLCanvasElement,f:RadarFrame,map:maplibregl.Map,segm
     ctx.stroke();
   }
 }
+/** Boundaries are lightweight transparent Canvas2D strokes, not radar pixels. */
+function drawOutlines(canvas:HTMLCanvasElement,map:maplibregl.Map,segments:Segments){
+ const rect=canvas.getBoundingClientRect();if(rect.width<8||rect.height<8)return;
+ const ratio=Math.min(devicePixelRatio||1,1.5);
+ canvas.width=Math.round(rect.width*ratio);canvas.height=Math.round(rect.height*ratio);
+ const ctx=canvas.getContext('2d');if(!ctx)return;
+ ctx.setTransform(ratio,0,0,ratio,0,0);
+ const w=rect.width,h=rect.height,mapSize=map.getContainer().getBoundingClientRect();
+ const world=512*2**map.getZoom();
+ const deltaX=mapSize.width/world/w,deltaY=mapSize.height/world/h;
+ const [cx,cy]=projection(map.getCenter().lng,map.getCenter().lat);
+ for(const shape of segments){
+  ctx.strokeStyle=shape.color;ctx.lineWidth=0.7;ctx.beginPath();
+  for(const line of shape.lines){
+   let first=true;
+   for(const pair of line){
+    const [wx,wy]=projection(pair[0],pair[1]);
+    const x=(wx-cx)/deltaX+w/2,y=(wy-cy)/deltaY+h/2;
+    if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
+   }
+  }
+  ctx.stroke();
+ }
+}
 function extractLines(geometry:{type:string;coordinates:any}):number[][][]{
   if(!geometry||!geometry.coordinates)return [];
   const g=geometry;
@@ -110,6 +136,8 @@ export class PanelManager {
   private selectedIndex=0;
   private overrides=new Map<number,{moment:Moment;angle:number}>();
   private segments:Segments=[];
+  private gpu:PanelGpu;
+  private rendered:PanelDraw[]=[];
   private boundariesRequested=false;
   private generation=0;
   private timer=0;
@@ -118,7 +146,9 @@ export class PanelManager {
               private loadFrame:(volume:VolumeDescriptor,sweep:SweepDescriptor,moment:Moment)=>Promise<RadarFrame>,
               private onSelected:(tile:Tile)=>void,
               private onLayoutChange:(count:Count)=>void){
-    map.on('moveend',()=>this.schedule());
+    this.gpu=new PanelGpu(this.grid,this.map);
+    map.on('move',()=>this.gpu.schedule());
+    map.on('moveend',()=>this.refreshViewport());
     this.grid.addEventListener('wheel',e=>{
       e.preventDefault();
       this.map.zoomTo(Math.max(2,Math.min(14,this.map.getZoom()+(e.deltaY<0?0.4:-0.4))),{duration:0});
@@ -132,6 +162,14 @@ export class PanelManager {
       }
       pointer=null;
     });
+  }
+  private refreshViewport(){
+    if(this.count===1)return;
+    this.gpu.schedule();
+    if(this.gpu.ready){
+      const lines=this.count===16?this.segments.filter(s=>s.color!=='#697e91'):this.segments;
+      for(const item of this.rendered)drawOutlines(item.canvas,this.map,lines);
+    }else this.schedule();
   }
   async loadBoundaries(){
     if(this.boundariesRequested)return;
@@ -155,7 +193,7 @@ export class PanelManager {
         this.segments.push({color:color[kind],lines});
       }catch(e){console.warn('Panel boundary fetch failed:',kind,e);}
     }
-    this.schedule();
+    this.refreshViewport();
   }
   setCount(count:Count){
     this.count=count;this.page=0;this.selectedIndex=0;this.overrides.clear();this.onLayoutChange(count);this.schedule();
@@ -283,12 +321,15 @@ export class PanelManager {
 
   async renderCurrent(){
     const generation=++this.generation;
-    this.grid.replaceChildren();
+    this.grid.replaceChildren(this.gpu.canvas);
+    this.rendered=[];
+    this.gpu.clear();
     if(this.count===1||!this.current){
       this.grid.classList.add('hidden');return;
     }
     this.grid.classList.remove('hidden');
     this.grid.dataset.panels=String(this.count);
+    this.grid.dataset.renderer=this.gpu.ready?'gpu':'cpu';
     const {volume}=this.current;
     const columns=this.count===2?2:this.count===4?2:4;
     this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
@@ -323,7 +364,11 @@ export class PanelManager {
           if(this.generation!==generation)return;
           const boundaryLines=this.count===16
             ?this.segments.filter(s=>s.color!=='#697e91'):this.segments;
-          drawFrame(canvas,frame,this.map,boundaryLines);
+          this.rendered.push({canvas,frame});
+          if(this.gpu.ready){
+            drawOutlines(canvas,this.map,boundaryLines);
+            this.gpu.setTiles([...this.rendered]);
+          }else drawFrame(canvas,frame,this.map,boundaryLines);
           const last=tile.sweep.time_utc[0];
           caption.textContent=tile.moment+' • '+tile.label+(last?' • '+new Date(last).toISOString().slice(11,19)+'Z':'');
           canvas.onclick=(e)=>{
