@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 
 import type {Moment, RadarFrame, SweepDescriptor, VolumeDescriptor} from './radar';
-import {getPalette,palettePixels,valueFactor} from './palettes';
+import {getPalette,palettePixels,valueFactor,cssGradient} from './palettes';
 
 type Count=1|2|4|16;
 type Tile={sweep:SweepDescriptor;moment:Moment;label:string};
@@ -200,6 +200,7 @@ export class PanelManager {
       this.grid.classList.add('hidden');return;
     }
     this.grid.classList.remove('hidden');
+    this.grid.dataset.panels=String(this.count);
     const {volume}=this.current;
     const columns=this.count===2?2:this.count===4?2:4;
     this.grid.style.gridTemplateColumns='repeat('+columns+',minmax(0,1fr))';
@@ -210,7 +211,14 @@ export class PanelManager {
       const canvas=document.createElement('canvas');
       const caption=document.createElement('span');caption.className='panel-caption';
       caption.textContent=tile.moment+' • '+tile.label+' • loading…';
-      box.append(canvas,caption);this.grid.append(box);
+      const palette=getPalette(tile.moment,'operational');
+      const bar=document.createElement('div');bar.className='mini-colorbar';
+      const high=document.createElement('span');high.textContent=palette.max+' '+palette.unit;
+      const low=document.createElement('span');low.textContent=palette.min+' '+palette.unit;
+      const gradient=document.createElement('div');gradient.className='mini-colorbar-gradient';
+      gradient.style.background=cssGradient(palette).replace('to right','to top');
+      bar.append(high,gradient,low);
+      box.append(canvas,caption,bar);this.grid.append(box);
       box.addEventListener('dblclick',()=>{this.setCount(1);this.selectCut(tile.sweep);});
       box.addEventListener('click',()=>{
         this.grid.querySelectorAll('.panel-tile').forEach(n=>n.classList.remove('active'));
@@ -230,7 +238,8 @@ export class PanelManager {
           const boundaryLines=this.count===16
             ?this.segments.filter(s=>s.color!=='#697e91'):this.segments;
           drawFrame(canvas,frame,this.map,boundaryLines);
-          caption.textContent=tile.moment+' • '+tile.label;
+          const last=tile.sweep.time_utc[0];
+          caption.textContent=tile.moment+' • '+tile.label+(last?' • '+new Date(last).toISOString().slice(11,19)+'Z':'');
           canvas.onclick=(e)=>{
             const rect=canvas.getBoundingClientRect();
             const xf=(e.clientX-rect.left)/rect.width, yf=(e.clientY-rect.top)/rect.height;
