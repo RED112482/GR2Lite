@@ -142,3 +142,9 @@ align-items:center;gap:3px;pointer-events:none;background:#111b25ac;border-radiu
   background:#384555;border:1px solid #617386;color:#bcd0df;border-radius:3px;
   padding:0 3px;font-size:7px;letter-spacing:.02em}
 .scan-tilts{padding-bottom:12px}
+
+/* The acquisition clock makes the partial-to-previous volume jump visible. */
+.scan-tilt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:5px 7px}
+.scan-chip-time{font-size:8px;font-weight:400;color:#b4c7d8;line-height:1.1}
+.scan-tilt.prior .scan-chip-time{color:#8196a8}
+.scan-tilt.newest .scan-chip-time{color:#dcfff0}
